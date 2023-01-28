@@ -1,7 +1,7 @@
 library datamine_client;
 
-/// A Calculator.
-class Calculator {
-  /// Returns [value] plus 1.
-  int addOne(int value) => value + 1;
+/// A client to interact with a DataMine's storage.
+class DatamineClient {
+  String signIn() => "User Name";
+  void signOut() {}
 }
