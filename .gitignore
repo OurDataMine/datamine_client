@@ -26,8 +26,12 @@ migrate_working_dir/
 /pubspec.lock
 **/doc/api/
 .dart_tool/
+.flutter-plugins*
 .packages
+.pub-cache/
+.pub/
 build/
+coverage/
 **/android/local.properties
 **/ios/Flutter
 **/macos/Flutter/ephemeral
