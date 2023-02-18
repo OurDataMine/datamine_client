@@ -8,6 +8,7 @@
 .buildlog/
 .history
 .svn/
+coverage/
 migrate_working_dir/
 
 # IntelliJ related
@@ -19,19 +20,54 @@ migrate_working_dir/
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
 # is commented out by default.
-#.vscode/
+.vscode/
 
-# Flutter/Dart/Pub related
+# Flutter/Dart/Pub related (largely copied from https://github.com/flutter/plugins/blob/main/.gitignore)
 # Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
-/pubspec.lock
-**/doc/api/
-.dart_tool/
-.flutter-plugins*
 .packages
-.pub-cache/
 .pub/
+.pub-cache/
+.dart_tool/
+pubspec.lock
+flutter_export_environment.sh
+
+Podfile.lock
+Pods/
+.symlinks/
+**/Flutter/App.framework/
+**/Flutter/ephemeral/
+**/Flutter/Flutter.podspec
+**/Flutter/Flutter.framework/
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_assets/
+
+ServiceDefinitions.json
+xcuserdata/
+**/DerivedData/
+
+local.properties
+keystore.properties
+.gradle/
+gradlew
+gradlew.bat
+gradle-wrapper.jar
+.flutter-plugins-dependencies
+*.iml
+
+generated_plugin_registrant.cc
+generated_plugin_registrant.h
+generated_plugin_registrant.dart
+generated_plugins.cmake
+GeneratedPluginRegistrant.java
+GeneratedPluginRegistrant.h
+GeneratedPluginRegistrant.m
+GeneratedPluginRegistrant.swift
 build/
-coverage/
-**/android/local.properties
-**/ios/Flutter
-**/macos/Flutter/ephemeral
+.flutter-plugins
+
+.project
+.classpath
+.settings
+
+# Downloaded by the plugin tools.
+google-java-format-1.3-all-deps.jar

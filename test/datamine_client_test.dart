@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
 import 'package:mockito/annotations.dart';
@@ -32,12 +30,11 @@ void main() {
   test('state changes on sign out', () async {
     final client = DatamineClient();
     await client.signIn();
-    expect(client.displayName, defaultUser.displayName);
-    expect(client.photoUrl, defaultUser.photoUrl);
+    expect(client.currentUser?.displayName, defaultUser.displayName);
+    expect(client.currentUser?.photoUrl, defaultUser.photoUrl);
 
     await client.signOut();
-    expect(client.displayName, null);
-    expect(client.photoUrl, null);
+    expect(client.currentUser, null);
   });
 
   test('falls back after failed silent sign in', () async {

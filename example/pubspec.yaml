@@ -1,0 +1,15 @@
+name: data_mine_client_example
+description: Example of Data Mine Client plugin, but mainly for me to more easily play around while testing
+publish_to: none
+
+environment:
+  sdk: '>=2.18.2 <3.0.0'
+  flutter: ">=1.17.0"
+
+dependencies:
+  datamine_client: {path: ../}
+  flutter: {sdk: flutter}
+  http: ^0.13.0
+
+flutter:
+  uses-material-design: true
