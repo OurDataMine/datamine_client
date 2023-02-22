@@ -1,6 +1,11 @@
 library datamine_client;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:hash/hash.dart';
+import 'package:path/path.dart' as path;
 
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
@@ -14,12 +19,21 @@ class UserInfo {
   const UserInfo(this.displayName, this.photoUrl);
 }
 
+class _FullDriveFile {
+  final drive.File metadata;
+  final drive.Media contents;
+  const _FullDriveFile(this.metadata, this.contents);
+}
+
 /// A client to interact with a DataMine's storage.
 class DatamineClient {
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
     'https://www.googleapis.com/auth/drive',
   ]);
+  String? _folderId;
+  final _fileController = StreamController<_FullDriveFile>();
+  late final StreamSubscription<_FullDriveFile> _fileSubscription;
 
   final _userInfoController = StreamController<UserInfo?>.broadcast();
   UserInfo? get currentUser {
@@ -31,6 +45,8 @@ class DatamineClient {
   }
 
   DatamineClient() {
+    _fileSubscription = _fileController.stream.listen(_onNewFile);
+    _fileSubscription.pause();
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
   }
 
@@ -50,10 +66,16 @@ class DatamineClient {
 
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
+      if (!_fileSubscription.isPaused) {
+        _fileSubscription.pause();
+      }
       _userInfoController.add(null);
     } else {
       _userInfoController.add(UserInfo(user.displayName, user.photoUrl));
       await _createFolder();
+      if (_fileSubscription.isPaused) {
+        _fileSubscription.resume();
+      }
     }
   }
 
@@ -65,6 +87,31 @@ class DatamineClient {
     final dataMineDir = await _ensureFolder(api, 'my_data_mine', null);
     final appDir = await _ensureFolder(api, appName, dataMineDir.id);
     _folderId = appDir.id;
+  }
+
+  void _onNewFile(_FullDriveFile file) async {
+    final client = await _googleSignIn.authenticatedClient();
+    final api = drive.DriveApi(client!);
+
+    file.metadata.parents = [_folderId!];
+    await api.files.create(file.metadata, uploadMedia: file.contents);
+  }
+
+  Future<String> storeFile(File local) async {
+    final rawHash = SHA256();
+    await for (List<int> chunk in local.openRead()) {
+      rawHash.update(chunk);
+    }
+    final b64Hash = base64UrlEncode(rawHash.digest());
+
+    _fileController.add(_FullDriveFile(
+      drive.File(
+        name: b64Hash,
+        originalFilename: path.basename(local.path),
+      ),
+      drive.Media(local.openRead(), local.lengthSync()),
+    ));
+    return b64Hash;
   }
 
   /// Subscribe to this stream to be notified when the current user changes.

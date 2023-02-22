@@ -1,17 +1,52 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:datamine_client/datamine_client.dart';
+
+final _client = DatamineClient();
 
 void main() {
   runApp(
     const MaterialApp(
       title: 'Data Mine Client',
-      home: ClientDemo(),
+      home: HomePage(),
     ),
   );
+}
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  Widget _buildLayout(BuildContext context, BoxConstraints contraints) {
+    final authHeight = contraints.maxHeight / 3;
+    final fileHeight = contraints.maxHeight - authHeight;
+    return Column(
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints.expand(height: authHeight),
+          child: ClientAuth(),
+        ),
+        ConstrainedBox(
+          constraints: BoxConstraints.expand(height: fileHeight),
+          child: ClientFiles(),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Data Mine Client'),
+      ),
+      body: LayoutBuilder(builder: _buildLayout),
+    );
+  }
 }
 
 String initials(input) {
@@ -26,15 +61,14 @@ String initials(input) {
   return result.trim().toUpperCase();
 }
 
-class ClientDemo extends StatefulWidget {
-  const ClientDemo({Key? key}) : super(key: key);
+class ClientAuth extends StatefulWidget {
+  const ClientAuth({Key? key}) : super(key: key);
 
   @override
-  State createState() => ClientDemoState();
+  State createState() => ClientAuthState();
 }
 
-class ClientDemoState extends State<ClientDemo> {
-  final _client = DatamineClient();
+class ClientAuthState extends State<ClientAuth> {
   UserInfo? _currentUser;
 
   @override
@@ -57,7 +91,8 @@ class ClientDemoState extends State<ClientDemo> {
 
   Future<void> _handleSignOut() => _client.signOut();
 
-  Widget _buildBody() {
+  @override
+  Widget build(BuildContext context) {
     final user = _currentUser;
 
     if (user == null) {
@@ -100,17 +135,46 @@ class ClientDemoState extends State<ClientDemo> {
       ],
     );
   }
+}
+
+class ClientFiles extends StatefulWidget {
+  const ClientFiles({super.key});
+
+  @override
+  State createState() => ClientFilesState();
+}
+
+class ClientFilesState extends State<ClientFiles> {
+  final List<String> uploads = [];
+
+  void _handleUpload() async {
+    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    if (result == null) {
+      return;
+    }
+    final file = result.files.single;
+    if (file.path == null) {
+      print(file);
+      return;
+    }
+
+    final hash = await _client.storeFile(File(file.path!));
+    setState(() {
+      uploads.add("$hash -> ${file.name}");
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Data Mine Client'),
-      ),
-      body: ConstrainedBox(
-        constraints: const BoxConstraints.expand(),
-        child: _buildBody(),
-      ),
+    return Column(
+      // mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        ElevatedButton(
+          onPressed: _handleUpload,
+          child: const Text('UPLOAD FILE'),
+        ),
+        Column(children: [for (String item in uploads) Text(item)]),
+      ],
     );
   }
 }

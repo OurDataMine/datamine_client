@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   datamine_client: {path: ../}
+  file_picker: ^3.0.4
   flutter: {sdk: flutter}
   http: ^0.13.0
 
