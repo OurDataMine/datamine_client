@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:hash/hash.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 
 import 'package:google_sign_in/google_sign_in.dart';
@@ -12,6 +13,8 @@ import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sig
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+
+final _log = Logger("datamine_client");
 
 class UserInfo {
   final String? displayName;
@@ -53,14 +56,19 @@ class DatamineClient {
     _newFileSub.pause();
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
 
-    getTemporaryDirectory().then((dir) => _cachePath = dir.path);
+    getTemporaryDirectory().then((dir) {
+      _cachePath = dir.path;
+      _log.finest("using $_cachePath as the download directory");
+    });
   }
 
   Future<void> signIn() async {
     GoogleSignInAccount? user;
     try {
       user = await _googleSignIn.signInSilently(suppressErrors: false);
-    } catch (_) {}
+    } catch (err) {
+      _log.info("silent sign in failed", err);
+    }
     if (user == null) {
       await _googleSignIn.signIn();
     }
@@ -73,6 +81,7 @@ class DatamineClient {
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
       if (!_newFileSub.isPaused) {
+        _log.finer("pausing file upload stream");
         _newFileSub.pause();
       }
       _fileIds = null;
@@ -81,6 +90,7 @@ class DatamineClient {
       _userInfoCtrl.add(UserInfo(user.displayName, user.email, user.photoUrl));
       await _createFolder();
       if (_newFileSub.isPaused) {
+        _log.finer("resuming file upload stream");
         _newFileSub.resume();
       }
     }
@@ -101,8 +111,10 @@ class DatamineClient {
 
   void _onNewFile(_FullDriveFile file) async {
     if (_fileIds!.containsKey(file.metadata.name!)) {
+      _log.fine("ignored file upload ${file.metadata.name} as a duplicate");
       return;
     }
+    _log.finer("uploading file ${file.metadata.name}");
     _fileIds![file.metadata.name!] = null;
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
@@ -111,6 +123,7 @@ class DatamineClient {
     final result =
         await api.files.create(file.metadata, uploadMedia: file.contents);
     _fileIds![result.name!] = result.id;
+    _log.fine("finished uploading file ${file.metadata.name}");
   }
 
   List<String> listFiles() => _fileIds?.keys.toList() ?? [];
@@ -135,6 +148,7 @@ class DatamineClient {
   Future<File> getFile(String fileId) async {
     final result = File(path.join(_cachePath, fileId));
     if (result.existsSync()) {
+      _log.fine("returning file $fileId from the cache");
       return result;
     }
 
@@ -142,6 +156,7 @@ class DatamineClient {
     if (driveId == null) {
       throw FileSystemException("file not found", fileId);
     }
+    _log.fine("downloading file $fileId as google drive file $driveId");
 
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
@@ -170,10 +185,8 @@ Future<drive.File> _ensureFolder(
   final list = await api.files.list(q: query);
   final files = list.files ?? [];
 
-  if (files.length == 1) {
-    return files[0];
-  }
   if (files.isEmpty) {
+    _log.fine("creating new folder $name with parent $parent");
     return api.files.create(drive.File(
       name: name,
       mimeType: folderType,
@@ -181,5 +194,8 @@ Future<drive.File> _ensureFolder(
     ));
   }
 
-  throw Exception("ambiguous data setup: ${files.length} folders match $name");
+  if (files.length > 1) {
+    _log.warning("ambiguous data setup: ${files.length} folders match $name");
+  }
+  return files[0];
 }

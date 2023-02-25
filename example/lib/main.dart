@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:hash/hash.dart' as hash;
+import 'package:logging/logging.dart';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,6 +14,17 @@ import 'package:datamine_client/datamine_client.dart';
 final _client = DatamineClient();
 
 void main() {
+  hierarchicalLoggingEnabled = true;
+  Logger.root.level = Level.ALL;
+  Logger.root.onRecord.listen((record) {
+    String line =
+        '${record.level.name}:${record.loggerName}:${record.time}: ${record.message}';
+    if (record.error != null) {
+      line += record.error.toString();
+    }
+    print(line);
+  });
+
   runApp(
     const MaterialApp(
       title: 'Data Mine Client',
@@ -46,13 +58,14 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Data Mine Client'),
+        actions: [LogLevelDropdown()],
       ),
       body: LayoutBuilder(builder: _buildLayout),
     );
   }
 }
 
-String initials(input) {
+String initials(String input) {
   String result = "";
   List<String> words = input.split(" ");
   for (var element in words) {
@@ -62,6 +75,44 @@ String initials(input) {
   }
 
   return result.trim().toUpperCase();
+}
+
+String shorten(String full) {
+  final len = full.length;
+  if (len < 18) {
+    return full;
+  }
+  return "${full.substring(0, 10)}...${full.substring(len - 5)}";
+}
+
+class LogLevelDropdown extends StatefulWidget {
+  const LogLevelDropdown({super.key});
+
+  @override
+  State<LogLevelDropdown> createState() => _LogLevelDropdown();
+}
+
+class _LogLevelDropdown extends State<LogLevelDropdown> {
+  Level current = Level.ALL;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButton<String>(
+      value: current.name,
+      onChanged: (String? value) {
+        setState(() {
+          current = Level.LEVELS.firstWhere((l) => l.name == value!);
+          Logger.root.children["datamine_client"]?.level = current;
+        });
+      },
+      items: Level.LEVELS.map<DropdownMenuItem<String>>((Level lvl) {
+        return DropdownMenuItem<String>(
+          value: lvl.name,
+          child: Text(lvl.name),
+        );
+      }).toList(),
+    );
+  }
 }
 
 class ClientAuth extends StatefulWidget {
@@ -151,14 +202,6 @@ class ClientFilesState extends State<ClientFiles> {
   final List<String> uploads = [];
   List<String> curFiles = [];
 
-  String trim(String full) {
-    final len = full.length;
-    if (len < 18) {
-      return full;
-    }
-    return "${full.substring(0, 10)}...${full.substring(len - 5)}";
-  }
-
   void _handleUpload() async {
     final result = await FilePicker.platform.pickFiles(allowMultiple: false);
     if (result == null) {
@@ -172,7 +215,7 @@ class ClientFilesState extends State<ClientFiles> {
 
     final hash = await _client.storeFile(File(file.path!));
     setState(() {
-      uploads.add("${trim(hash)} -> ${trim(file.name)}");
+      uploads.add("${shorten(hash)} -> ${shorten(file.name)}");
     });
   }
 
@@ -215,7 +258,7 @@ class ClientFilesState extends State<ClientFiles> {
         ),
         for (String name in curFiles)
           ElevatedButton(
-              onPressed: _downloadHandler(name), child: Text(trim(name))),
+              onPressed: _downloadHandler(name), child: Text(shorten(name))),
       ],
     );
   }

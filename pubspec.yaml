@@ -13,6 +13,7 @@ dependencies:
   google_sign_in: ^5.4.2
   googleapis: ^9.2.0
   hash: ^1.0.4
+  logging: ^1.1.1
   package_info_plus: ^3.0.3
   path: ^1.8.2
   path_provider: ^2.0.13
