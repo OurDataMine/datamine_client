@@ -1,7 +1,10 @@
 // ignore_for_file: avoid_print
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+
+import 'package:hash/hash.dart' as hash;
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -146,6 +149,15 @@ class ClientFiles extends StatefulWidget {
 
 class ClientFilesState extends State<ClientFiles> {
   final List<String> uploads = [];
+  List<String> curFiles = [];
+
+  String trim(String full) {
+    final len = full.length;
+    if (len < 18) {
+      return full;
+    }
+    return "${full.substring(0, 10)}...${full.substring(len - 5)}";
+  }
 
   void _handleUpload() async {
     final result = await FilePicker.platform.pickFiles(allowMultiple: false);
@@ -160,8 +172,30 @@ class ClientFilesState extends State<ClientFiles> {
 
     final hash = await _client.storeFile(File(file.path!));
     setState(() {
-      uploads.add("$hash -> ${file.name}");
+      uploads.add("${trim(hash)} -> ${trim(file.name)}");
     });
+  }
+
+  void _handleList() {
+    setState(() {
+      curFiles = _client.listFiles();
+    });
+  }
+
+  void Function() _downloadHandler(String name) {
+    return () async {
+      try {
+        final file = await _client.getFile(name);
+        final rawHash = hash.SHA256();
+        await for (List<int> chunk in file.openRead()) {
+          rawHash.update(chunk);
+        }
+        final b64Hash = base64UrlEncode(rawHash.digest());
+        print("hash for file $name = $b64Hash");
+      } catch (err) {
+        print(err);
+      }
+    };
   }
 
   @override
@@ -174,6 +208,14 @@ class ClientFilesState extends State<ClientFiles> {
           child: const Text('UPLOAD FILE'),
         ),
         Column(children: [for (String item in uploads) Text(item)]),
+        Padding(padding: EdgeInsets.all(20)),
+        ElevatedButton(
+          onPressed: _handleList,
+          child: const Text('LIST FILES'),
+        ),
+        for (String name in curFiles)
+          ElevatedButton(
+              onPressed: _downloadHandler(name), child: Text(trim(name))),
       ],
     );
   }
