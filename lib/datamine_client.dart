@@ -1,5 +1,3 @@
-library datamine_client;
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -143,6 +141,37 @@ class DatamineClient {
       drive.Media(local.openRead(), local.lengthSync()),
     ));
     return b64Hash;
+  }
+
+  Future<String> storeDynamicFile(File local) async {
+    final name = path.basename(local.path);
+
+    _newFileCtrl.add(_FullDriveFile(
+      drive.File(name: name),
+      drive.Media(local.openRead(), local.lengthSync()),
+    ));
+    return name;
+  }
+
+  /// Updates the content of a previously stored dynamic file. Unlike
+  /// storeDynamicFile this method (for now) will not work when called
+  /// before the signIn is finished because I don't want to add another
+  /// stream when that whole methodology will likely change soon.
+  Future<void> updateDynamicFile(File local) async {
+    final name = path.basename(local.path);
+    final driveId = _fileIds?[name];
+    if (driveId == null) {
+      throw FileSystemException(
+          "file doesn't match previously stored file", name);
+    }
+
+    final client = await _googleSignIn.authenticatedClient();
+    final api = drive.DriveApi(client!);
+    await api.files.update(
+      drive.File(),
+      driveId,
+      uploadMedia: drive.Media(local.openRead(), local.lengthSync()),
+    );
   }
 
   Future<File> getFile(String fileId) async {

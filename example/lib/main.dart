@@ -200,6 +200,7 @@ class ClientFiles extends StatefulWidget {
 
 class ClientFilesState extends State<ClientFiles> {
   final List<String> uploads = [];
+  final Map<String, String> dynamics = {};
   List<String> curFiles = [];
 
   void _handleUpload() async {
@@ -219,10 +220,39 @@ class ClientFilesState extends State<ClientFiles> {
     });
   }
 
+  void _handleDynamicUpload() async {
+    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    if (result == null) {
+      return;
+    }
+    final file = result.files.single;
+    if (file.path == null) {
+      print(file);
+      return;
+    }
+
+    final fileId = await _client.storeDynamicFile(File(file.path!));
+    setState(() {
+      uploads.add("${shorten(fileId)} -> ${shorten(file.name)}");
+      dynamics[fileId] = file.path!;
+    });
+  }
+
   void _handleList() {
     setState(() {
       curFiles = _client.listFiles();
     });
+  }
+
+  void Function() _updateHandler(String name) {
+    return () async {
+      try {
+        final filepath = dynamics[name]!;
+        await _client.updateDynamicFile(File(filepath));
+      } catch (err) {
+        print(err);
+      }
+    };
   }
 
   void Function() _downloadHandler(String name) {
@@ -243,14 +273,22 @@ class ClientFilesState extends State<ClientFiles> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return SingleChildScrollView(
+        child: Column(
       // mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
+        Column(children: [for (String item in uploads) Text(item)]),
         ElevatedButton(
           onPressed: _handleUpload,
           child: const Text('UPLOAD FILE'),
         ),
-        Column(children: [for (String item in uploads) Text(item)]),
+        ElevatedButton(
+          onPressed: _handleDynamicUpload,
+          child: const Text('UPLOAD Dynamic FILE'),
+        ),
+        Padding(padding: EdgeInsets.all(20)),
+        for (String name in dynamics.keys)
+          ElevatedButton(onPressed: _updateHandler(name), child: Text(name)),
         Padding(padding: EdgeInsets.all(20)),
         ElevatedButton(
           onPressed: _handleList,
@@ -260,6 +298,6 @@ class ClientFilesState extends State<ClientFiles> {
           ElevatedButton(
               onPressed: _downloadHandler(name), child: Text(shorten(name))),
       ],
-    );
+    ));
   }
 }
