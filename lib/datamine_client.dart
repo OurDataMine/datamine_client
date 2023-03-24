@@ -34,6 +34,7 @@ class DatamineClient {
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
+  Completer<void> _onlineReady = Completer<void>();
   String? _folderId;
   Map<String, String?>? _fileIds;
   final _newFileCtrl = StreamController<_FullDriveFile>();
@@ -78,6 +79,7 @@ class DatamineClient {
 
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
+      _onlineReady = Completer<void>();
       if (!_newFileSub.isPaused) {
         _log.finer("pausing file upload stream");
         _newFileSub.pause();
@@ -90,6 +92,11 @@ class DatamineClient {
       if (_newFileSub.isPaused) {
         _log.finer("resuming file upload stream");
         _newFileSub.resume();
+      }
+      if (!_onlineReady.isCompleted) {
+        _onlineReady.complete();
+      } else {
+        _log.warning("unexpected user change while signed in $user");
       }
     }
   }
@@ -153,11 +160,9 @@ class DatamineClient {
     return name;
   }
 
-  /// Updates the content of a previously stored dynamic file. Unlike
-  /// storeDynamicFile this method (for now) will not work when called
-  /// before the signIn is finished because I don't want to add another
-  /// stream when that whole methodology will likely change soon.
+  /// Updates the content of a previously stored dynamic file.
   Future<void> updateDynamicFile(File local) async {
+    await _onlineReady.future;
     final name = path.basename(local.path);
     final driveId = _fileIds?[name];
     if (driveId == null) {
@@ -181,6 +186,7 @@ class DatamineClient {
       return result;
     }
 
+    await _onlineReady.future;
     final driveId = _fileIds?[fileId];
     if (driveId == null) {
       throw FileSystemException("file not found", fileId);
