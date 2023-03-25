@@ -9,8 +9,11 @@ import 'package:path/path.dart' as path;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:isar/isar.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'src/local_store.dart';
 
 final _log = Logger("datamine_client");
 
@@ -18,6 +21,9 @@ class UserInfo {
   final String? displayName;
   final String? email;
   final String? photoUrl;
+
+  @override
+  String toString() => "$displayName <$email>";
 
   const UserInfo(this.displayName, this.email, this.photoUrl);
 }
@@ -34,6 +40,8 @@ class DatamineClient {
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
+  late final Future<Isar> _dbReady =
+      getApplicationSupportDirectory().then(_openDb);
   Completer<void> _onlineReady = Completer<void>();
   String? _folderId;
   Map<String, String?>? _fileIds;
@@ -59,6 +67,41 @@ class DatamineClient {
       _cachePath = dir.path;
       _log.finest("using $_cachePath as the download directory");
     });
+  }
+
+  Future<Isar> _openDb(Directory dir) async {
+    const dbName = "data_mine_client";
+    final dbFile = File(path.join(dir.path, "$dbName.isar"));
+
+    // Database already exists, all we need to do is open it.
+    if (await dbFile.exists()) {
+      _log.fine("database file already exists");
+      return Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
+    }
+    _log.finer("no database found locally");
+
+    // Next we need to check if the database has been backed up remotely.
+    try {
+      final dlDb = await getFile("$dbName.isar");
+      await dlDb.rename(dbFile.path);
+      _log.fine("downloaded database file from remote store");
+      return Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
+    } on FileSystemException {
+      // Need to create, initialize, and upload the database, but the try
+      // block returns so we don't need to do that in this nested block.
+      _log.finer("no database found on remote");
+    }
+
+    final files = _fileIds!.entries
+        .map((ids) => FileMeta(ids.key, null, ids.value, false))
+        .toList();
+
+    final db =
+        await Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
+    await db.writeTxn(() => db.fileMetas.putAll(files));
+    _log.fine("created a fresh database");
+
+    return db;
   }
 
   Future<void> signIn() async {
@@ -131,7 +174,10 @@ class DatamineClient {
     _log.fine("finished uploading file ${file.metadata.name}");
   }
 
-  List<String> listFiles() => _fileIds?.keys.toList() ?? [];
+  Future<List<String>> listFiles() async {
+    final isar = await _dbReady;
+    return isar.fileMetas.where().idProperty().findAll();
+  }
 
   Future<String> storeFile(File local) async {
     final rawHash = SHA256();

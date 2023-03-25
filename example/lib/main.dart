@@ -162,7 +162,7 @@ class ClientAuthState extends State<ClientAuth> {
       );
     }
 
-    final String displayName = user.displayName ?? '';
+    final String displayName = user.toString();
     final String? photoUrl = user.photoUrl;
 
     final CircleAvatar avatar;
@@ -238,10 +238,9 @@ class ClientFilesState extends State<ClientFiles> {
     });
   }
 
-  void _handleList() {
-    setState(() {
-      curFiles = _client.listFiles();
-    });
+  void _handleList() async {
+    final fileList = await _client.listFiles();
+    setState(() => curFiles = fileList);
   }
 
   void Function() _updateHandler(String name) {
