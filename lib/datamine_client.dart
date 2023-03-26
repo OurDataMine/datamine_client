@@ -28,12 +28,6 @@ class UserInfo {
   const UserInfo(this.displayName, this.email, this.photoUrl);
 }
 
-class _FullDriveFile {
-  final drive.File metadata;
-  final drive.Media contents;
-  const _FullDriveFile(this.metadata, this.contents);
-}
-
 /// A client to interact with a DataMine's storage.
 class DatamineClient {
   final _googleSignIn = GoogleSignIn(scopes: [
@@ -45,8 +39,6 @@ class DatamineClient {
   Completer<void> _onlineReady = Completer<void>();
   String? _folderId;
   Map<String, String?>? _fileIds;
-  final _newFileCtrl = StreamController<_FullDriveFile>();
-  late final StreamSubscription<_FullDriveFile> _newFileSub;
   late final String _cachePath;
 
   final _userInfoCtrl = StreamController<UserInfo?>.broadcast();
@@ -59,8 +51,7 @@ class DatamineClient {
   }
 
   DatamineClient() {
-    _newFileSub = _newFileCtrl.stream.listen(_onNewFile);
-    _newFileSub.pause();
+    _dbReady.then(_watchUploads);
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
 
     getTemporaryDirectory().then((dir) {
@@ -93,7 +84,7 @@ class DatamineClient {
     }
 
     final files = _fileIds!.entries
-        .map((ids) => FileMeta(ids.key, null, ids.value, false))
+        .map((ids) => FileMeta(ids.key, driveId: ids.value))
         .toList();
 
     final db =
@@ -107,7 +98,8 @@ class DatamineClient {
   Future<void> signIn() async {
     GoogleSignInAccount? user;
     try {
-      user = await _googleSignIn.signInSilently(suppressErrors: false);
+      user = await _googleSignIn.signInSilently(
+          suppressErrors: false, reAuthenticate: true);
     } catch (err) {
       _log.info("silent sign in failed", err);
     }
@@ -123,19 +115,11 @@ class DatamineClient {
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
       _onlineReady = Completer<void>();
-      if (!_newFileSub.isPaused) {
-        _log.finer("pausing file upload stream");
-        _newFileSub.pause();
-      }
       _fileIds = null;
       _userInfoCtrl.add(null);
     } else {
       _userInfoCtrl.add(UserInfo(user.displayName, user.email, user.photoUrl));
       await _createFolder();
-      if (_newFileSub.isPaused) {
-        _log.finer("resuming file upload stream");
-        _newFileSub.resume();
-      }
       if (!_onlineReady.isCompleted) {
         _onlineReady.complete();
       } else {
@@ -157,21 +141,52 @@ class DatamineClient {
     _fileIds = {for (drive.File f in list.files ?? []) f.name!: f.id!};
   }
 
-  void _onNewFile(_FullDriveFile file) async {
-    if (_fileIds!.containsKey(file.metadata.name!)) {
-      _log.fine("ignored file upload ${file.metadata.name} as a duplicate");
-      return;
+  void _watchUploads(Isar isar) async {
+    final query = isar.fileMetas.where().uploadPendingEqualTo(true).build();
+    final watcher = query.watchLazy().asBroadcastStream();
+
+    await _uploadPending(isar, query);
+    await for (final _ in watcher) {
+      _log.finest("change detected in file list pending upload");
+      await _uploadPending(isar, query);
     }
-    _log.finer("uploading file ${file.metadata.name}");
-    _fileIds![file.metadata.name!] = null;
+  }
+
+  Future<void> _uploadPending(Isar isar, Query<FileMeta> query) async {
+    // Wait for online ready before we run the query to try to catch all
+    // files changed while we in offline mode.
+    await _onlineReady.future;
+    final pending = await query.findAll();
+    if (pending.isEmpty) return;
+
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
 
-    file.metadata.parents = [_folderId!];
-    final result =
-        await api.files.create(file.metadata, uploadMedia: file.contents);
-    _fileIds![result.name!] = result.id;
-    _log.fine("finished uploading file ${file.metadata.name}");
+    for (final meta in pending) {
+      final local = File(meta.localPath!);
+      if (!(await local.exists())) {
+        _log.severe("${meta.localPath} removed before upload to the data mine");
+        continue;
+      }
+
+      final media = drive.Media(local.openRead(), await local.length());
+      if (meta.driveId != null) {
+        _log.finer("updating file ${meta.id}");
+        await api.files.update(drive.File(), meta.driveId!, uploadMedia: media);
+      } else {
+        _log.finer("creating new file ${meta.id}");
+        final driveFile = drive.File(
+          name: meta.id,
+          originalFilename: path.basename(meta.localPath!),
+          parents: [_folderId!],
+        );
+        final resp = await api.files.create(driveFile, uploadMedia: media);
+        meta.driveId = resp.id;
+      }
+      _log.fine("uploaded ${meta.id} with drive ID ${meta.driveId}");
+      meta.uploadPending = false;
+      await isar.writeTxn(() => isar.fileMetas.put(meta));
+    }
   }
 
   Future<List<String>> listFiles() async {
@@ -179,69 +194,52 @@ class DatamineClient {
     return isar.fileMetas.where().idProperty().findAll();
   }
 
-  Future<String> storeFile(File local) async {
-    final rawHash = SHA256();
-    await for (List<int> chunk in local.openRead()) {
-      rawHash.update(chunk);
-    }
-    final b64Hash = base64UrlEncode(rawHash.digest());
-
-    _newFileCtrl.add(_FullDriveFile(
-      drive.File(
-        name: b64Hash,
-        originalFilename: path.basename(local.path),
-      ),
-      drive.Media(local.openRead(), local.lengthSync()),
-    ));
-    return b64Hash;
-  }
-
-  Future<String> storeDynamicFile(File local) async {
-    final name = path.basename(local.path);
-
-    _newFileCtrl.add(_FullDriveFile(
-      drive.File(name: name),
-      drive.Media(local.openRead(), local.lengthSync()),
-    ));
-    return name;
-  }
-
-  /// Updates the content of a previously stored dynamic file.
-  Future<void> updateDynamicFile(File local) async {
-    await _onlineReady.future;
-    final name = path.basename(local.path);
-    final driveId = _fileIds?[name];
-    if (driveId == null) {
-      throw FileSystemException(
-          "file doesn't match previously stored file", name);
+  /// Stores a file to the data mine. If an ID is provided and matches a
+  /// previously stored file the contents will be updated. If an ID is not
+  /// provided one will be generated automatically from a hash of the file's
+  /// contents.
+  Future<String> storeFile(File local, {String? id}) async {
+    if (id == null) {
+      final rawHash = SHA256();
+      await for (List<int> chunk in local.openRead()) {
+        rawHash.update(chunk);
+      }
+      id = base64UrlEncode(rawHash.digest());
     }
 
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
-    await api.files.update(
-      drive.File(),
-      driveId,
-      uploadMedia: drive.Media(local.openRead(), local.lengthSync()),
-    );
+    final isar = await _dbReady;
+    var meta = await isar.fileMetas.get(fastHash(id));
+    if (meta == null) {
+      meta = FileMeta(id, localPath: local.path, uploadPending: true);
+    } else {
+      meta.localPath = local.path;
+      meta.uploadPending = true;
+    }
+    await isar.writeTxn(() => isar.fileMetas.put(meta!));
+    return id;
   }
 
   Future<File> getFile(String fileId) async {
     final result = File(path.join(_cachePath, fileId));
-    if (result.existsSync()) {
+    if (await result.exists()) {
       _log.fine("returning file $fileId from the cache");
       return result;
     }
 
-    await _onlineReady.future;
-    final driveId = _fileIds?[fileId];
-    if (driveId == null) {
+    final isar = await _dbReady;
+    final meta = await isar.fileMetas.get(fastHash(fileId));
+    if (meta == null) {
       throw FileSystemException("file not found", fileId);
+    } else if (meta.driveId == null) {
+      throw FileSystemException("file storage not complete", fileId);
     }
-    _log.fine("downloading file $fileId as google drive file $driveId");
+
+    await _onlineReady.future;
+    _log.fine("downloading file $fileId as google drive file ${meta.driveId}");
 
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
-    final driveFile = await api.files.get(driveId,
+    final driveFile = await api.files.get(meta.driveId!,
         downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
 
     final sink = result.openWrite();

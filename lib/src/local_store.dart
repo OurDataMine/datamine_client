@@ -13,7 +13,7 @@ class FileMeta {
   @Index()
   bool uploadPending;
 
-  FileMeta(this.id, this.localPath, this.driveId, this.uploadPending);
+  FileMeta(this.id, {this.localPath, this.driveId, this.uploadPending = false});
 }
 
 /// FNV-1a 64bit hash algorithm optimized for Dart Strings.

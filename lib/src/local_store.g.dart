@@ -108,9 +108,9 @@ FileMeta _fileMetaDeserialize(
 ) {
   final object = FileMeta(
     reader.readString(offsets[1]),
-    reader.readStringOrNull(offsets[2]),
-    reader.readStringOrNull(offsets[0]),
-    reader.readBool(offsets[3]),
+    driveId: reader.readStringOrNull(offsets[0]),
+    localPath: reader.readStringOrNull(offsets[2]),
+    uploadPending: reader.readBoolOrNull(offsets[3]) ?? false,
   );
   return object;
 }
@@ -129,7 +129,7 @@ P _fileMetaDeserializeProp<P>(
     case 2:
       return (reader.readStringOrNull(offset)) as P;
     case 3:
-      return (reader.readBool(offset)) as P;
+      return (reader.readBoolOrNull(offset) ?? false) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
   }
