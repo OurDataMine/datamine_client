@@ -223,13 +223,15 @@ class ClientFilesState extends State<ClientFiles> {
       return;
     }
 
-    final id = await _client.storeFile(
-      File(file.path!),
-      id: idCtrl.text != "" ? idCtrl.text : null,
-    );
+    final inputId = idCtrl.text != "" ? idCtrl.text : null;
     idCtrl.clear();
+
+    final id = await _client.storeFile(File(file.path!), id: inputId);
     setState(() {
       uploads.add("${shorten(id)} -> ${shorten(file.name)}");
+      if (uploads.length > 5) {
+        uploads.removeRange(0, uploads.length - 5);
+      }
     });
   }
 

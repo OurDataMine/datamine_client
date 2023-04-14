@@ -18,27 +18,26 @@ import 'src/local_store.dart';
 final _log = Logger("datamine_client");
 
 class UserInfo {
+  final String email;
   final String? displayName;
-  final String? email;
   final String? photoUrl;
 
   @override
   String toString() => "$displayName <$email>";
 
-  const UserInfo(this.displayName, this.email, this.photoUrl);
+  const UserInfo(this.email, this.displayName, this.photoUrl);
 }
 
 /// A client to interact with a DataMine's storage.
 class DatamineClient {
+  static const _dbName = "data_mine_client";
+
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
-  late final Future<Isar> _dbReady =
-      getApplicationSupportDirectory().then(_openDb);
+  late final Future<Isar> _dbReady = _openDb();
   Completer<void> _onlineReady = Completer<void>();
-  String? _folderId;
-  Map<String, String?>? _fileIds;
   late final String _cachePath;
 
   final _userInfoCtrl = StreamController<UserInfo?>.broadcast();
@@ -47,7 +46,7 @@ class DatamineClient {
     if (gUser == null) {
       return null;
     }
-    return UserInfo(gUser.displayName, gUser.email, gUser.photoUrl);
+    return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
   }
 
   DatamineClient() {
@@ -60,39 +59,80 @@ class DatamineClient {
     });
   }
 
-  Future<Isar> _openDb(Directory dir) async {
-    const dbName = "data_mine_client";
-    final dbFile = File(path.join(dir.path, "$dbName.isar"));
+  Future<Isar> _openDb() async {
+    const schemas = [DriveInfoSchema, FileMetaSchema];
 
-    // Database already exists, all we need to do is open it.
-    if (await dbFile.exists()) {
+    final isar = await Isar.open(schemas, name: _dbName);
+    final dbPath = isar.path!;
+    // Database already initialized, no further action required.
+    if ((await isar.driveInfos.get(0)) != null) {
       _log.fine("database file already exists");
-      return Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
+      return isar;
     }
     _log.finer("no database found locally");
 
     // Next we need to check if the database has been backed up remotely.
-    try {
-      final dlDb = await getFile("$dbName.isar");
-      await dlDb.rename(dbFile.path);
-      _log.fine("downloaded database file from remote store");
-      return Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
-    } on FileSystemException {
-      // Need to create, initialize, and upload the database, but the try
-      // block returns so we don't need to do that in this nested block.
-      _log.finer("no database found on remote");
+    await _onlineReady.future;
+    final client = await _googleSignIn.authenticatedClient();
+    final api = drive.DriveApi(client!);
+
+    final appName = (await PackageInfo.fromPlatform()).appName;
+    final dataMineDir = await _ensureFolder(api, 'my_data_mine', null);
+    final appDir = await _ensureFolder(api, appName, dataMineDir.id);
+
+    final driveQuery = "'${appDir.id}' in parents";
+    final dbQuery = "name='$_dbName' and $driveQuery";
+    final dumpFile = (await api.files.list(q: dbQuery)).files ?? [];
+    String dumpFileId = "";
+    if (dumpFile.isNotEmpty) {
+      dumpFileId = dumpFile[0].id!;
+      final dbMedia = await api.files.get(dumpFileId,
+          downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
+
+      // Protect against the possibility of the first backup failing after
+      // the file was created.
+      if (dbMedia.length! > 0) {
+        isar.close(deleteFromDisk: true);
+        final local = File(dbPath);
+        final sink = local.openWrite();
+        await sink.addStream(dbMedia.stream);
+        await sink.close();
+        _log.fine("downloaded database file from remote store");
+        return Isar.open(schemas, name: _dbName);
+      }
     }
 
-    final files = _fileIds!.entries
-        .map((ids) => FileMeta(ids.key, driveId: ids.value))
-        .toList();
+    // Most likely a first time install, but also remotely possible it's an
+    // upgrade. In the latter case we want to populate the DB with everything
+    // currently in the drive folder.
+    _log.finer("no database found on remote");
+    final driveFiles = (await api.files.list(q: driveQuery)).files ?? [];
+    if (dumpFileId == "") {
+      final dumpFile = drive.File(name: _dbName, parents: [appDir.id!]);
+      final createResp = await api.files.create(dumpFile);
+      dumpFileId = createResp.id!;
+    }
 
-    final db =
-        await Isar.open([FileMetaSchema], directory: dir.path, name: dbName);
-    await db.writeTxn(() => db.fileMetas.putAll(files));
+    await isar.writeTxn(() => isar.clear());
+    await isar.writeTxn(() {
+      final info = DriveInfo(
+        email: _googleSignIn.currentUser!.email,
+        folderId: appDir.id!,
+        dbDumpId: dumpFileId,
+      );
+      return isar.driveInfos.put(info);
+    });
+    await isar.writeTxn(() {
+      final fileList = driveFiles
+          .where((f) => f.name != _dbName)
+          .map((f) => FileMeta(f.name!, driveId: f.id))
+          .toList(growable: false);
+      return isar.fileMetas.putAll(fileList);
+    });
     _log.fine("created a fresh database");
 
-    return db;
+    _backupDb(isar, api);
+    return isar;
   }
 
   Future<void> signIn() async {
@@ -115,11 +155,9 @@ class DatamineClient {
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
       _onlineReady = Completer<void>();
-      _fileIds = null;
       _userInfoCtrl.add(null);
     } else {
-      _userInfoCtrl.add(UserInfo(user.displayName, user.email, user.photoUrl));
-      await _createFolder();
+      _userInfoCtrl.add(UserInfo(user.email, user.displayName, user.photoUrl));
       if (!_onlineReady.isCompleted) {
         _onlineReady.complete();
       } else {
@@ -128,39 +166,27 @@ class DatamineClient {
     }
   }
 
-  Future<void> _createFolder() async {
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
-
-    final appName = (await PackageInfo.fromPlatform()).appName;
-    final dataMineDir = await _ensureFolder(api, 'my_data_mine', null);
-    final appDir = await _ensureFolder(api, appName, dataMineDir.id);
-    _folderId = appDir.id;
-
-    final list = await api.files.list(q: "'$_folderId' in parents");
-    _fileIds = {for (drive.File f in list.files ?? []) f.name!: f.id!};
-  }
-
   void _watchUploads(Isar isar) async {
     final query = isar.fileMetas.where().uploadPendingEqualTo(true).build();
     final watcher = query.watchLazy().asBroadcastStream();
 
-    await _uploadPending(isar, query);
-    await for (final _ in watcher) {
-      _log.finest("change detected in file list pending upload");
+    while (true) {
       await _uploadPending(isar, query);
+      await watcher.first;
+      _log.finest("change detected in file list pending upload");
     }
   }
 
   Future<void> _uploadPending(Isar isar, Query<FileMeta> query) async {
     // Wait for online ready before we run the query to try to catch all
-    // files changed while we in offline mode.
+    // files changed while we are in offline mode.
     await _onlineReady.future;
     final pending = await query.findAll();
     if (pending.isEmpty) return;
 
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
+    final folderId = (await isar.driveInfos.get(0))!.folderId;
 
     for (final meta in pending) {
       final local = File(meta.localPath!);
@@ -178,15 +204,29 @@ class DatamineClient {
         final driveFile = drive.File(
           name: meta.id,
           originalFilename: path.basename(meta.localPath!),
-          parents: [_folderId!],
+          parents: [folderId],
         );
         final resp = await api.files.create(driveFile, uploadMedia: media);
         meta.driveId = resp.id;
       }
       _log.fine("uploaded ${meta.id} with drive ID ${meta.driveId}");
       meta.uploadPending = false;
-      await isar.writeTxn(() => isar.fileMetas.put(meta));
+      await isar.writeTxn(() => isar.fileMetas.put(meta), silent: true);
     }
+
+    _backupDb(isar, api);
+  }
+
+  Future<void> _backupDb(Isar isar, drive.DriveApi api) async {
+    final dumpPath = path.join(_cachePath, _dbName);
+    final local = File(dumpPath);
+    await local.delete();
+    await isar.copyToFile(dumpPath);
+
+    final driveId = (await isar.driveInfos.get(0))!.dbDumpId;
+    final media = drive.Media(local.openRead(), await local.length());
+    await api.files.update(drive.File(), driveId, uploadMedia: media);
+    _log.finer("backed up database dump file");
   }
 
   Future<List<String>> listFiles() async {

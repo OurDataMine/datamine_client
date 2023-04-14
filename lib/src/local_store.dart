@@ -3,6 +3,20 @@ import 'package:isar/isar.dart';
 part 'local_store.g.dart';
 
 @collection
+class DriveInfo {
+  final Id isarId = 0; // Only supporting one drive account for now
+  final String email;
+  final String folderId;
+  final String dbDumpId;
+
+  DriveInfo({
+    required this.email,
+    required this.folderId,
+    required this.dbDumpId,
+  });
+}
+
+@collection
 class FileMeta {
   final String id;
   Id get isarId => fastHash(id);
