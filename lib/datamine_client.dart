@@ -41,7 +41,8 @@ class DatamineClient {
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
-  late final Future<Isar> _dbReady = _openDb();
+  late final Future<Isar> _dbReady =
+      getApplicationSupportDirectory().then(_openDb);
   Completer<void> _onlineReady = Completer<void>();
   late final String _cachePath;
 
@@ -62,10 +63,10 @@ class DatamineClient {
     });
   }
 
-  Future<Isar> _openDb() async {
+  Future<Isar> _openDb(Directory dir) async {
     const schemas = [DriveInfoSchema, FileMetaSchema];
 
-    final isar = await Isar.open(schemas, name: _dbName);
+    final isar = await Isar.open(schemas, directory: dir.path, name: _dbName);
     // Database already initialized, no further action required.
     if ((await isar.driveInfos.get(0)) != null) {
       _log.fine("database file already exists");
@@ -97,7 +98,7 @@ class DatamineClient {
         await isar.close(deleteFromDisk: true);
         await file.rename(isarPath);
         _log.fine("downloaded database file from remote store");
-        return Isar.open(schemas, name: _dbName);
+        return Isar.open(schemas, directory: dir.path, name: _dbName);
       }
     }
 
