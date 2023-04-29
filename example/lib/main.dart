@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:hash/hash.dart' as hash;
 import 'package:logging/logging.dart';
@@ -37,14 +38,15 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   Widget _buildLayout(BuildContext context, BoxConstraints contraints) {
-    final authHeight = contraints.maxHeight / 3;
-    final fileHeight = contraints.maxHeight - authHeight;
+    final authHeight = min(contraints.maxHeight / 3, 110.0);
+    final fileHeight = contraints.maxHeight - authHeight - 15;
     return Column(
       children: [
         ConstrainedBox(
           constraints: BoxConstraints.expand(height: authHeight),
           child: ClientAuth(),
         ),
+        Divider(height: 15, thickness: 5),
         ConstrainedBox(
           constraints: BoxConstraints.expand(height: fileHeight),
           child: ClientFiles(),
@@ -162,7 +164,7 @@ class ClientAuthState extends State<ClientAuth> {
       );
     }
 
-    final String displayName = user.displayName ?? '';
+    final String displayName = user.toString();
     final String? photoUrl = user.photoUrl;
 
     final CircleAvatar avatar;
@@ -199,9 +201,16 @@ class ClientFiles extends StatefulWidget {
 }
 
 class ClientFilesState extends State<ClientFiles> {
+  final idCtrl = TextEditingController();
   final List<String> uploads = [];
-  final Map<String, String> dynamics = {};
   List<String> curFiles = [];
+
+  @override
+  void dispose() {
+    // Clean up the controller when the widget is disposed.
+    idCtrl.dispose();
+    super.dispose();
+  }
 
   void _handleUpload() async {
     final result = await FilePicker.platform.pickFiles(allowMultiple: false);
@@ -214,45 +223,22 @@ class ClientFilesState extends State<ClientFiles> {
       return;
     }
 
-    final hash = await _client.storeFile(File(file.path!));
+    final inputId = idCtrl.text != "" ? idCtrl.text : null;
+    idCtrl.clear();
+
+    final id = await _client.storeFile(File(file.path!), id: inputId);
     setState(() {
-      uploads.add("${shorten(hash)} -> ${shorten(file.name)}");
-    });
-  }
-
-  void _handleDynamicUpload() async {
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
-    if (result == null) {
-      return;
-    }
-    final file = result.files.single;
-    if (file.path == null) {
-      print(file);
-      return;
-    }
-
-    final fileId = await _client.storeDynamicFile(File(file.path!));
-    setState(() {
-      uploads.add("${shorten(fileId)} -> ${shorten(file.name)}");
-      dynamics[fileId] = file.path!;
-    });
-  }
-
-  void _handleList() {
-    setState(() {
-      curFiles = _client.listFiles();
-    });
-  }
-
-  void Function() _updateHandler(String name) {
-    return () async {
-      try {
-        final filepath = dynamics[name]!;
-        await _client.updateDynamicFile(File(filepath));
-      } catch (err) {
-        print(err);
+      uploads.add("${shorten(id)} -> ${shorten(file.name)}");
+      if (uploads.length > 5) {
+        uploads.removeRange(0, uploads.length - 5);
       }
-    };
+    });
+  }
+
+  void _handleList() async {
+    final fileList = (await _client.listFiles()).map(shorten).toList();
+    fileList.sort();
+    setState(() => curFiles = fileList);
   }
 
   void Function() _downloadHandler(String name) {
@@ -278,25 +264,20 @@ class ClientFilesState extends State<ClientFiles> {
       // mainAxisAlignment: MainAxisAlignment.spaceAround,
       children: [
         Column(children: [for (String item in uploads) Text(item)]),
-        ElevatedButton(
-          onPressed: _handleUpload,
-          child: const Text('UPLOAD FILE'),
-        ),
-        ElevatedButton(
-          onPressed: _handleDynamicUpload,
-          child: const Text('UPLOAD Dynamic FILE'),
-        ),
-        Padding(padding: EdgeInsets.all(20)),
-        for (String name in dynamics.keys)
-          ElevatedButton(onPressed: _updateHandler(name), child: Text(name)),
+        Row(children: [
+          Expanded(child: TextField(controller: idCtrl)),
+          ElevatedButton(
+            onPressed: _handleUpload,
+            child: const Text('UPLOAD FILE'),
+          ),
+        ]),
         Padding(padding: EdgeInsets.all(20)),
         ElevatedButton(
           onPressed: _handleList,
           child: const Text('LIST FILES'),
         ),
         for (String name in curFiles)
-          ElevatedButton(
-              onPressed: _downloadHandler(name), child: Text(shorten(name))),
+          ElevatedButton(onPressed: _downloadHandler(name), child: Text(name)),
       ],
     ));
   }
