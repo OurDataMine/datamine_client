@@ -13,6 +13,7 @@ import 'package:isar/isar.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'src/drive_helpers.dart';
 import 'src/local_store.dart';
 
 final _log = Logger("datamine_client");
@@ -26,6 +27,10 @@ class UserInfo {
   String toString() => "$displayName <$email>";
 
   const UserInfo(this.email, this.displayName, this.photoUrl);
+  static UserInfo? _fromGoogle(GoogleSignInAccount? gUser) {
+    if (gUser == null) return null;
+    return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
+  }
 }
 
 /// A client to interact with a DataMine's storage.
@@ -40,14 +45,12 @@ class DatamineClient {
   Completer<void> _onlineReady = Completer<void>();
   late final String _cachePath;
 
-  final _userInfoCtrl = StreamController<UserInfo?>.broadcast();
-  UserInfo? get currentUser {
-    final gUser = _googleSignIn.currentUser;
-    if (gUser == null) {
-      return null;
-    }
-    return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
-  }
+  /// User info for the account used to sign in.
+  UserInfo? get currentUser => UserInfo._fromGoogle(_googleSignIn.currentUser);
+
+  /// Subscribe to this stream to be notified when the current user changes.
+  late final Stream<UserInfo?> onUserChanged =
+      _googleSignIn.onCurrentUserChanged.map(UserInfo._fromGoogle);
 
   DatamineClient() {
     _dbReady.then(_watchUploads);
@@ -63,7 +66,6 @@ class DatamineClient {
     const schemas = [DriveInfoSchema, FileMetaSchema];
 
     final isar = await Isar.open(schemas, name: _dbName);
-    final dbPath = isar.path!;
     // Database already initialized, no further action required.
     if ((await isar.driveInfos.get(0)) != null) {
       _log.fine("database file already exists");
@@ -72,13 +74,15 @@ class DatamineClient {
     _log.finer("no database found locally");
 
     // Next we need to check if the database has been backed up remotely.
-    await _onlineReady.future;
+    while (_googleSignIn.currentUser == null) {
+      await _googleSignIn.onCurrentUserChanged.first;
+    }
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
 
     final appName = (await PackageInfo.fromPlatform()).appName;
-    final dataMineDir = await _ensureFolder(api, 'my_data_mine', null);
-    final appDir = await _ensureFolder(api, appName, dataMineDir.id);
+    final dataMineDir = await ensureDriveFolder(api, 'my_data_mine', null);
+    final appDir = await ensureDriveFolder(api, appName, dataMineDir.id);
 
     final driveQuery = "'${appDir.id}' in parents";
     final dbQuery = "name='$_dbName' and $driveQuery";
@@ -86,17 +90,12 @@ class DatamineClient {
     String dumpFileId = "";
     if (dumpFile.isNotEmpty) {
       dumpFileId = dumpFile[0].id!;
-      final dbMedia = await api.files.get(dumpFileId,
-          downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
-
-      // Protect against the possibility of the first backup failing after
-      // the file was created.
-      if (dbMedia.length! > 0) {
-        isar.close(deleteFromDisk: true);
-        final local = File(dbPath);
-        final sink = local.openWrite();
-        await sink.addStream(dbMedia.stream);
-        await sink.close();
+      final isarPath = isar.path!;
+      final tmpFilePath = path.join(_cachePath, _dbName);
+      final file = await downloadDriveFile(api, dumpFileId, tmpFilePath);
+      if (file.lengthSync() > 0) {
+        await isar.close(deleteFromDisk: true);
+        await file.rename(isarPath);
         _log.fine("downloaded database file from remote store");
         return Isar.open(schemas, name: _dbName);
       }
@@ -131,7 +130,7 @@ class DatamineClient {
     });
     _log.fine("created a fresh database");
 
-    _backupDb(isar, api);
+    await _backupDb(isar, api);
     return isar;
   }
 
@@ -149,19 +148,23 @@ class DatamineClient {
   }
 
   Future<void> signOut() async {
-    await _googleSignIn.disconnect();
+    await _googleSignIn.signOut();
   }
 
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
       _onlineReady = Completer<void>();
-      _userInfoCtrl.add(null);
+    } else if (_onlineReady.isCompleted) {
+      _log.warning("unexpected user change while signed in $user");
     } else {
-      _userInfoCtrl.add(UserInfo(user.email, user.displayName, user.photoUrl));
-      if (!_onlineReady.isCompleted) {
+      final isar = await _dbReady;
+      final savedUser = (await isar.driveInfos.get(0))!.email;
+      if (savedUser == user.email) {
         _onlineReady.complete();
       } else {
-        _log.warning("unexpected user change while signed in $user");
+        final msg = "multiple users unsupported: "
+            "signed in with ${user.email}, database configured for $savedUser";
+        _onlineReady.completeError(Exception(msg));
       }
     }
   }
@@ -214,13 +217,17 @@ class DatamineClient {
       await isar.writeTxn(() => isar.fileMetas.put(meta), silent: true);
     }
 
-    _backupDb(isar, api);
+    await _backupDb(isar, api);
   }
 
   Future<void> _backupDb(Isar isar, drive.DriveApi api) async {
     final dumpPath = path.join(_cachePath, _dbName);
     final local = File(dumpPath);
-    await local.delete();
+    try {
+      await local.delete();
+    } on PathNotFoundException {
+      // file doesn't exist, so copying backup file won't conflict anyway
+    }
     await isar.copyToFile(dumpPath);
 
     final driveId = (await isar.driveInfos.get(0))!.dbDumpId;
@@ -279,42 +286,6 @@ class DatamineClient {
 
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
-    final driveFile = await api.files.get(meta.driveId!,
-        downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
-
-    final sink = result.openWrite();
-    await sink.addStream(driveFile.stream);
-    await sink.close();
-    return result;
+    return downloadDriveFile(api, meta.driveId!, result.path);
   }
-
-  /// Subscribe to this stream to be notified when the current user changes.
-  Stream<UserInfo?> get onUserChanged => _userInfoCtrl.stream;
-}
-
-Future<drive.File> _ensureFolder(
-  drive.DriveApi api,
-  String name,
-  String? parent,
-) async {
-  const folderType = 'application/vnd.google-apps.folder';
-
-  String query = "mimeType='$folderType' and name='$name'";
-  if (parent != null) query += " and '$parent' in parents";
-  final list = await api.files.list(q: query);
-  final files = list.files ?? [];
-
-  if (files.isEmpty) {
-    _log.fine("creating new folder $name with parent $parent");
-    return api.files.create(drive.File(
-      name: name,
-      mimeType: folderType,
-      parents: parent != null ? [parent] : null,
-    ));
-  }
-
-  if (files.length > 1) {
-    _log.warning("ambiguous data setup: ${files.length} folders match $name");
-  }
-  return files[0];
 }
