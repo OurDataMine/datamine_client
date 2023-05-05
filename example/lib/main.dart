@@ -236,7 +236,7 @@ class ClientFilesState extends State<ClientFiles> {
   }
 
   void _handleList() async {
-    final fileList = (await _client.listFiles()).map(shorten).toList();
+    final fileList = (await _client.listFiles()).toList();
     fileList.sort();
     setState(() => curFiles = fileList);
   }
@@ -250,7 +250,7 @@ class ClientFilesState extends State<ClientFiles> {
           rawHash.update(chunk);
         }
         final b64Hash = base64UrlEncode(rawHash.digest());
-        print("hash for file $name = $b64Hash");
+        print("hash for file '$name' = '$b64Hash'");
       } catch (err) {
         print(err);
       }
@@ -277,7 +277,10 @@ class ClientFilesState extends State<ClientFiles> {
           child: const Text('LIST FILES'),
         ),
         for (String name in curFiles)
-          ElevatedButton(onPressed: _downloadHandler(name), child: Text(name)),
+          ElevatedButton(
+            onPressed: _downloadHandler(name),
+            child: Text(shorten(name)),
+          ),
       ],
     ));
   }

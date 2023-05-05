@@ -66,7 +66,12 @@ class DatamineClient {
   Future<Isar> _openDb(Directory dir) async {
     const schemas = [DriveInfoSchema, FileMetaSchema];
 
-    final isar = await Isar.open(schemas, directory: dir.path, name: _dbName);
+    final isar = await Isar.open(
+      schemas,
+      directory: dir.path,
+      name: _dbName,
+      inspector: false,
+    );
     // Database already initialized, no further action required.
     if ((await isar.driveInfos.get(0)) != null) {
       _log.fine("database file already exists");
@@ -98,7 +103,12 @@ class DatamineClient {
         await isar.close(deleteFromDisk: true);
         await file.rename(isarPath);
         _log.fine("downloaded database file from remote store");
-        return Isar.open(schemas, directory: dir.path, name: _dbName);
+        return Isar.open(
+          schemas,
+          directory: dir.path,
+          name: _dbName,
+          inspector: false,
+        );
       }
     }
 
@@ -193,7 +203,7 @@ class DatamineClient {
     final folderId = (await isar.driveInfos.get(0))!.folderId;
 
     for (final meta in pending) {
-      final local = File(meta.localPath!);
+      final local = File(path.join(_cachePath, meta.id));
       if (!(await local.exists())) {
         _log.severe("${meta.localPath} removed before upload to the data mine");
         continue;
@@ -254,6 +264,9 @@ class DatamineClient {
       }
       id = base64UrlEncode(rawHash.digest());
     }
+    // backup the current file to the cache, both to avoid capturing unwanted
+    // changes, and to allow the `getFile` method to avoid downloading it.
+    await local.copy(path.join(_cachePath, id));
 
     final isar = await _dbReady;
     var meta = await isar.fileMetas.get(fastHash(id));
@@ -268,18 +281,16 @@ class DatamineClient {
   }
 
   Future<File> getFile(String fileId) async {
-    final result = File(path.join(_cachePath, fileId));
-    if (await result.exists()) {
-      _log.fine("returning file $fileId from the cache");
-      return result;
-    }
-
     final isar = await _dbReady;
     final meta = await isar.fileMetas.get(fastHash(fileId));
     if (meta == null) {
       throw FileSystemException("file not found", fileId);
-    } else if (meta.driveId == null) {
-      throw FileSystemException("file storage not complete", fileId);
+    }
+
+    final result = File(path.join(_cachePath, fileId));
+    if (await result.exists()) {
+      _log.fine("returning file $fileId from the cache");
+      return result;
     }
 
     await _onlineReady.future;
