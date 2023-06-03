@@ -32,6 +32,15 @@ Future<drive.File> ensureDriveFolder(
   return files[0];
 }
 
+Future<Map<String, String>> readDriveFolder(
+  drive.DriveApi api,
+  String name,
+) async {
+  final query = "'$name' in parents";
+  final list = await api.files.list(q: query);
+  return {for (final f in list.files!) f.name!: f.id!};
+}
+
 Future<File> downloadDriveFile(
   drive.DriveApi api,
   String fileId,

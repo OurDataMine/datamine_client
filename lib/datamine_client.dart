@@ -12,6 +12,7 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:isar/isar.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/drive_helpers.dart';
 import 'src/local_store.dart';
@@ -35,16 +36,23 @@ class UserInfo {
 
 /// A client to interact with a DataMine's storage.
 class DatamineClient {
+  static const _prefix = "_dmc";
+  static const _userKey = "$_prefix:current_user";
   static const _dbName = "data_mine_client";
 
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
+  late final SharedPreferences _pref;
+  late final String _cacheRoot;
+  late String _cachePath;
+  String? _folderID;
+  Map<String, String>? _fileIDs;
+
   late final Future<Isar> _dbReady =
       getApplicationSupportDirectory().then(_openDb);
   Completer<void> _onlineReady = Completer<void>();
-  late final String _cachePath;
 
   /// User info for the account used to sign in.
   UserInfo? get currentUser => UserInfo._fromGoogle(_googleSignIn.currentUser);
@@ -57,9 +65,12 @@ class DatamineClient {
     _dbReady.then(_watchUploads);
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
 
-    getTemporaryDirectory().then((dir) {
-      _cachePath = dir.path;
-      _log.finest("using $_cachePath as the download directory");
+    Future.wait([
+      SharedPreferences.getInstance().then((val) => _pref = val),
+      getTemporaryDirectory().then((dir) => _cacheRoot = dir.path),
+    ]).then((_) {
+      _log.finest("using $_cacheRoot as the root cache directory");
+      _initUserParams(_pref.getString(_userKey));
     });
   }
 
@@ -162,6 +173,29 @@ class DatamineClient {
     await _googleSignIn.signOut();
   }
 
+  Future<void> _initUserParams(String? userName) async {
+    _cachePath = path.join(_cacheRoot, _prefix, userName ?? "anonymous");
+    await Directory(_cachePath).create(recursive: true);
+    _log.finer("using $_cachePath as the cache directory");
+    if (userName == null) return;
+
+    final client = await _googleSignIn.authenticatedClient();
+    final api = drive.DriveApi(client!);
+
+    final idKey = "$_prefix:$userName:folderID";
+    _folderID = _pref.getString(idKey);
+    if (_folderID == null) {
+      final appName = (await PackageInfo.fromPlatform()).appName;
+      final dataMineDir = await ensureDriveFolder(api, 'my_data_mine', null);
+      final appDir = await ensureDriveFolder(api, appName, dataMineDir.id);
+      _folderID = appDir.id!;
+      _pref.setString(idKey, _folderID!);
+    }
+    _fileIDs = await readDriveFolder(api, _folderID!);
+
+    _pref.setString(_userKey, userName);
+  }
+
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
       _onlineReady = Completer<void>();
@@ -171,6 +205,7 @@ class DatamineClient {
       final isar = await _dbReady;
       final savedUser = (await isar.driveInfos.get(0))!.email;
       if (savedUser == user.email) {
+        await _initUserParams(user.email);
         _onlineReady.complete();
       } else {
         final msg = "multiple users unsupported: "
@@ -248,8 +283,7 @@ class DatamineClient {
   }
 
   Future<List<String>> listFiles() async {
-    final isar = await _dbReady;
-    return isar.fileMetas.where().idProperty().findAll();
+    return _fileIDs?.keys.toList() ?? [];
   }
 
   /// Stores a file to the data mine. If an ID is provided and matches a
@@ -280,24 +314,22 @@ class DatamineClient {
     return id;
   }
 
-  Future<File> getFile(String fileId) async {
-    final isar = await _dbReady;
-    final meta = await isar.fileMetas.get(fastHash(fileId));
-    if (meta == null) {
-      throw FileSystemException("file not found", fileId);
-    }
-
-    final result = File(path.join(_cachePath, fileId));
+  Future<File> getFile(String id) async {
+    final result = File(path.join(_cachePath, id));
     if (await result.exists()) {
-      _log.fine("returning file $fileId from the cache");
+      _log.finer("returning file $id from the cache");
       return result;
     }
 
     await _onlineReady.future;
-    _log.fine("downloading file $fileId as google drive file ${meta.driveId}");
+    final driveId = _fileIDs![id];
+    if (driveId == null) {
+      throw FileSystemException("file not found", id);
+    }
 
+    _log.fine("downloading file $id as google drive file $driveId");
     final client = await _googleSignIn.authenticatedClient();
     final api = drive.DriveApi(client!);
-    return downloadDriveFile(api, meta.driveId!, result.path);
+    return downloadDriveFile(api, driveId, result.path);
   }
 }
