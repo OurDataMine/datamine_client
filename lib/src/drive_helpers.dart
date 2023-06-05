@@ -41,6 +41,22 @@ Future<Map<String, String>> readDriveFolder(
   return {for (final f in list.files!) f.name!: f.id!};
 }
 
+Future<drive.File?> readDriveFileInfo(
+  drive.DriveApi api,
+  String folderId,
+  String fileName,
+) async {
+  final query = "name='$fileName' and '$folderId' in parents";
+  final list = await api.files.list(q: query);
+  final files = list.files ?? [];
+
+  if (files.isEmpty) return null;
+  if (files.length > 1) {
+    _log.warning("ambiguous remote: ${files.length} files match $fileName");
+  }
+  return files[0];
+}
+
 Future<File> downloadDriveFile(
   drive.DriveApi api,
   String fileId,
