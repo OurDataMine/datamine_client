@@ -9,7 +9,6 @@ import 'package:path/path.dart' as path;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -44,10 +43,9 @@ class DatamineClient {
   late final SharedPreferences _pref;
   late final String _cacheRoot, _dataRoot;
   late Directory _cacheDir, _dataDir;
-  String? _folderID;
   Map<String, String?>? _fileIDs;
 
-  Completer<void> _onlineReady = Completer<void>();
+  var _onlineReady = Completer<DriveApi>();
   StreamSubscription<FileSystemEvent>? _dataWatch;
 
   /// User info for the account used to sign in.
@@ -104,21 +102,13 @@ class DatamineClient {
     _log.finer("using ${_cacheDir.path} as the cache directory");
   }
 
-  Future<void> _setUser(String userName) async {
+  Future<void> _setUser(String userName, DriveApi api) async {
     _initLocalStore(userName);
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
 
-    final idKey = "$_prefix:$userName:folderID";
-    _folderID = _pref.getString(idKey);
-    if (_folderID == null) {
-      final appName = (await PackageInfo.fromPlatform()).appName;
-      final dataMineDir = await ensureDriveFolder(api, 'my_data_mine', null);
-      final appDir = await ensureDriveFolder(api, appName, dataMineDir.id);
-      _folderID = appDir.id!;
-      _pref.setString(idKey, _folderID!);
-    }
-    _fileIDs = await readDriveFolder(api, _folderID!);
+    final idKey = "$_prefix:$userName:folderId";
+    await api.initFolder(_pref.getString(idKey));
+    _pref.setString(idKey, api.folderId);
+    _fileIDs = await api.readFolder();
 
     _pref.setString(_userKey, userName);
     _dataDir.list().listen((event) {
@@ -131,35 +121,25 @@ class DatamineClient {
 
   void _onUserChange(GoogleSignInAccount? user) async {
     if (user == null) {
-      _onlineReady = Completer<void>();
+      _onlineReady = Completer<DriveApi>();
       _dataWatch?.cancel();
       _dataWatch = null;
     } else if (_onlineReady.isCompleted) {
       _log.warning("unexpected user change while signed in $user");
     } else {
-      await _setUser(user.email);
-      _onlineReady.complete();
+      final client = await _googleSignIn.authenticatedClient();
+      final api = DriveApi(drive.DriveApi(client!));
+      await _setUser(user.email, api);
+      _onlineReady.complete(api);
     }
   }
 
   Future<void> _uploadFile(String filePath) async {
+    final api = await _onlineReady.future;
     final fileName = path.basename(filePath);
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
-    final remote = await readDriveFileInfo(api, _folderID!, fileName);
+    final local = File(path.join(_dataDir.path, filePath));
 
-    final local = File(path.join(_cacheDir.path, filePath));
-    final media = drive.Media(local.openRead(), await local.length());
-    if (remote != null) {
-      _log.finer("updating file $fileName (drive ID = ${remote.id})");
-      await api.files.update(drive.File(), remote.id!, uploadMedia: media);
-    } else {
-      _log.finer("creating new file $fileName");
-      final driveFile = drive.File(name: fileName, parents: [_folderID!]);
-      final resp = await api.files.create(driveFile, uploadMedia: media);
-      _fileIDs![fileName] = resp.id;
-    }
-
+    _fileIDs![fileName] = await api.uploadFile(fileName, local);
     await local.delete();
   }
 
@@ -199,15 +179,13 @@ class DatamineClient {
       return result;
     }
 
-    await _onlineReady.future;
+    final api = await _onlineReady.future;
     final driveId = _fileIDs![id];
     if (driveId == null) {
       throw FileSystemException("file not found", id);
     }
 
     _log.fine("downloading file $id as google drive file $driveId");
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
-    return downloadDriveFile(api, driveId, result.path);
+    return api.downloadFile(driveId, result.path);
   }
 }
