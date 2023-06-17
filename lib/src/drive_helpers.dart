@@ -4,9 +4,11 @@ import 'package:logging/logging.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'id_map_cache.dart';
+
 final _log = Logger("datamine_client");
 
-class DriveApi {
+class DriveApi implements Remote {
   final drive.DriveApi _baseApi;
   String _folderId = "";
 
@@ -55,6 +57,7 @@ class DriveApi {
     return files[0].id!;
   }
 
+  @override
   Future<Map<String, String>> readFolder() async {
     final query = "'$_folderId' in parents";
     final list = await _baseApi.files.list(q: query);

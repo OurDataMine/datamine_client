@@ -13,6 +13,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/drive_helpers.dart';
+import 'src/id_map_cache.dart';
 
 final _log = Logger("datamine_client");
 
@@ -43,7 +44,7 @@ class DatamineClient {
   late final SharedPreferences _pref;
   late final String _cacheRoot, _dataRoot;
   late Directory _cacheDir, _dataDir;
-  Map<String, String?>? _fileIDs;
+  IDMapCache? _fileIDs;
 
   var _onlineReady = Completer<DriveApi>();
   StreamSubscription<FileSystemEvent>? _dataWatch;
@@ -93,6 +94,9 @@ class DatamineClient {
     _dataDir.create(recursive: true);
     _log.finer("using ${_dataDir.path} as the data directory");
 
+    final idFile = path.join(_dataRoot, '${userName ?? "anonymous"}-ids.json');
+    _fileIDs = IDMapCache(idFile);
+
     if (userName == null) {
       _cacheDir = _dataDir;
     } else {
@@ -108,7 +112,7 @@ class DatamineClient {
     final idKey = "$_prefix:$userName:folderId";
     await api.initFolder(_pref.getString(idKey));
     _pref.setString(idKey, api.folderId);
-    _fileIDs = await api.readFolder();
+    _fileIDs!.addRemote(api);
 
     _pref.setString(_userKey, userName);
     _dataDir.list().listen((event) {
@@ -139,12 +143,13 @@ class DatamineClient {
     final fileName = path.basename(filePath);
     final local = File(path.join(_dataDir.path, filePath));
 
-    _fileIDs![fileName] = await api.uploadFile(fileName, local);
+    final remoteId = await api.uploadFile(fileName, local);
+    _fileIDs?.setID(fileName, remoteId);
     await local.delete();
   }
 
   Future<List<String>> listFiles() async {
-    return _fileIDs?.keys.toList() ?? [];
+    return _fileIDs?.listFiles() ?? [];
   }
 
   /// Stores a file to the data mine. If an ID is provided and matches a
@@ -180,7 +185,7 @@ class DatamineClient {
     }
 
     final api = await _onlineReady.future;
-    final driveId = _fileIDs![id];
+    final driveId = await _fileIDs?.getID(id);
     if (driveId == null) {
       throw FileSystemException("file not found", id);
     }
