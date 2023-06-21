@@ -30,6 +30,19 @@ class IDMapCache {
     _refresh();
   }
 
+  /// mergeOld is intended to be use only when a previously unauthenticated
+  /// user logs in for the first time. We need to preserve the names for all
+  /// the files stored localy until they can be uploaded.
+  void mergeOld(IDMapCache old) {
+    for (final key in old._idMap.keys) {
+      if (!_idMap.containsKey(key)) {
+        _idMap[key] = old._idMap[key];
+      }
+    }
+    _saveFile();
+    old._file.deleteSync();
+  }
+
   List<String> listFiles() => _idMap.keys.toList();
 
   Future<String?> getID(String fileName) async {
@@ -62,12 +75,14 @@ class IDMapCache {
     _idMap
       ..removeWhere((_, value) => value != null)
       ..addAll(update);
+
+    _lastSync = DateTime.now();
     _saveFile();
   }
 
   void _saveFile() {
     final rawJson = jsonEncode({
-      "last_sync": DateTime.now().toIso8601String(),
+      "last_sync": _lastSync?.toIso8601String(),
       "id_map": _idMap,
     });
     _file.writeAsString(rawJson);

@@ -44,7 +44,7 @@ class DatamineClient {
   late final SharedPreferences _pref;
   late final String _cacheRoot, _dataRoot;
   late Directory _cacheDir, _dataDir;
-  IDMapCache? _fileIDs;
+  late IDMapCache _fileIDs;
 
   var _onlineReady = Completer<DriveApi>();
   StreamSubscription<FileSystemEvent>? _dataWatch;
@@ -107,12 +107,25 @@ class DatamineClient {
   }
 
   Future<void> _setUser(String userName, DriveApi api) async {
+    // If we were in anonymous mode previously we need to move all the files
+    // into the new user's directory for upload, and copy them to the cache.
+    final prevDataDir = _dataDir;
+    final prevFileIDs = _fileIDs;
     _initLocalStore(userName);
+    if (prevDataDir.path.endsWith("anonymous")) {
+      await for (final file in prevDataDir.list()) {
+        final origFile = File(file.absolute.path);
+        await origFile.copy(path.join(_cacheDir.path, file.path));
+        await origFile.rename(path.join(_dataDir.path, file.path));
+      }
+      await prevDataDir.delete();
+      _fileIDs.mergeOld(prevFileIDs);
+    }
 
     final idKey = "$_prefix:$userName:folderId";
     await api.initFolder(_pref.getString(idKey));
     _pref.setString(idKey, api.folderId);
-    _fileIDs!.addRemote(api);
+    _fileIDs.addRemote(api);
 
     _pref.setString(_userKey, userName);
     _dataDir.list().listen((event) {
@@ -144,13 +157,11 @@ class DatamineClient {
     final local = File(path.join(_dataDir.path, filePath));
 
     final remoteId = await api.uploadFile(fileName, local);
-    _fileIDs?.setID(fileName, remoteId);
+    _fileIDs.setID(fileName, remoteId);
     await local.delete();
   }
 
-  Future<List<String>> listFiles() async {
-    return _fileIDs?.listFiles() ?? [];
-  }
+  List<String> listFiles() => _fileIDs.listFiles();
 
   /// Stores a file to the data mine. If an ID is provided and matches a
   /// previously stored file the contents will be updated. If an ID is not
@@ -185,7 +196,7 @@ class DatamineClient {
     }
 
     final api = await _onlineReady.future;
-    final driveId = await _fileIDs?.getID(id);
+    final driveId = await _fileIDs.getID(id);
     if (driveId == null) {
       throw FileSystemException("file not found", id);
     }
