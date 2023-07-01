@@ -40,7 +40,10 @@ class IDMapCache {
       }
     }
     _saveFile();
-    old._file.deleteSync();
+
+    if (old._file.existsSync()) {
+      old._file.deleteSync();
+    }
   }
 
   List<String> listFiles() => _idMap.keys.toList();
