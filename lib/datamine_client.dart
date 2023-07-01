@@ -41,6 +41,7 @@ class DatamineClient {
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
+  final _ready = Completer<void>();
   late final SharedPreferences _pref;
   late final String _cacheRoot, _dataRoot;
   late Directory _cacheDir, _dataDir;
@@ -68,8 +69,8 @@ class DatamineClient {
     ]).then((_) {
       _log.finest("using $_dataRoot as the root data directory");
       _log.finest("using $_cacheRoot as the root cache directory");
-      _initLocalStore(_pref.getString(_userKey));
-    });
+      return _initLocalStore(_pref.getString(_userKey));
+    }).then(_ready.complete, onError: _ready.completeError);
   }
 
   Future<void> signIn() async {
@@ -89,9 +90,9 @@ class DatamineClient {
     await _googleSignIn.signOut();
   }
 
-  Future<void> _initLocalStore(String? userName) async {
-    _dataDir = Directory(path.join(_dataRoot, userName ?? "anonymous"));
-    _dataDir.create(recursive: true);
+  void _initLocalStore(String? userName) {
+    _dataDir = Directory(path.join(_dataRoot, userName ?? "anonymous"))
+      ..create(recursive: true);
     _log.finer("using ${_dataDir.path} as the data directory");
 
     final idFile = path.join(_dataRoot, '${userName ?? "anonymous"}-ids.json');
@@ -100,13 +101,17 @@ class DatamineClient {
     if (userName == null) {
       _cacheDir = _dataDir;
     } else {
-      _cacheDir = Directory(path.join(_cacheRoot, userName));
-      _cacheDir.create(recursive: true);
+      _cacheDir = Directory(path.join(_cacheRoot, userName))
+        ..create(recursive: true);
     }
     _log.finer("using ${_cacheDir.path} as the cache directory");
   }
 
   Future<void> _setUser(String userName, DriveApi api) async {
+    // I can't see this await really being necessary, but just be safe. In
+    // theory signIn could be before all the constructors awaits are finished.
+    await _ready.future;
+
     // If we were in anonymous mode previously we need to move all the files
     // into the new user's directory for upload, and copy them to the cache.
     final prevDataDir = _dataDir;
@@ -161,13 +166,17 @@ class DatamineClient {
     await local.delete();
   }
 
-  List<String> listFiles() => _fileIDs.listFiles();
+  Future<List<String>> listFiles() async {
+    await _ready.future;
+    return _fileIDs.listFiles();
+  }
 
   /// Stores a file to the data mine. If an ID is provided and matches a
   /// previously stored file the contents will be updated. If an ID is not
   /// provided one will be generated automatically from a hash of the file's
   /// contents.
   Future<String> storeFile(File local, {String? id}) async {
+    await _ready.future;
     if (id == null) {
       final rawHash = SHA256();
       await for (List<int> chunk in local.openRead()) {
@@ -189,6 +198,7 @@ class DatamineClient {
   }
 
   Future<File> getFile(String id) async {
+    await _ready.future;
     final result = File(path.join(_cacheDir.path, id));
     if (await result.exists()) {
       _log.finer("returning file $id from the cache");
