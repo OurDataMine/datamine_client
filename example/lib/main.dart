@@ -236,7 +236,7 @@ class ClientFilesState extends State<ClientFiles> {
   }
 
   void _handleList() async {
-    final fileList = (await _client.listFiles()).toList();
+    final fileList = await _client.listFiles();
     fileList.sort();
     setState(() => curFiles = fileList);
   }

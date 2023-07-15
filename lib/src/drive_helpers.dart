@@ -59,9 +59,22 @@ class DriveApi implements Remote {
 
   @override
   Future<Map<String, String>> readFolder() async {
+    const orderBy = "createdTime desc";
     final query = "'$_folderId' in parents";
-    final list = await _baseApi.files.list(q: query);
-    return {for (final f in list.files!) f.name!: f.id!};
+
+    final Map<String, String> result = {};
+    String? nextPage;
+    do {
+      final list = await _baseApi.files.list(
+        q: query,
+        orderBy: orderBy,
+        pageToken: nextPage,
+      );
+      result.addAll({for (final f in list.files!) f.name!: f.id!});
+      nextPage = list.nextPageToken;
+    } while (nextPage != null);
+
+    return result;
   }
 
   Future<drive.File?> _getFileInfo(String fileName) async {
