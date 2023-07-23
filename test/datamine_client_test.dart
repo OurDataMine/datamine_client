@@ -43,11 +43,12 @@ void main() {
   test('state changes on sign out', () async {
     final client = DatamineClient();
     await client.signIn();
-    expect(client.currentUser?.displayName, defaultUser.displayName);
-    expect(client.currentUser?.photoUrl, defaultUser.photoUrl);
+    final curUser = await client.currentUser;
+    expect(curUser?.displayName, defaultUser.displayName);
+    expect(curUser?.photoUrl, defaultUser.photoUrl);
 
     await client.signOut();
-    expect(client.currentUser, null);
+    expect(await client.currentUser, null);
   });
 
   test('falls back after failed silent sign in', () async {

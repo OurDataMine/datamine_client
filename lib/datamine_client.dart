@@ -15,21 +15,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'src/drive_helpers.dart';
 import 'src/id_map_cache.dart';
 
+export 'src/id_map_cache.dart' show UserInfo;
+
 final _log = Logger("datamine_client");
 
-class UserInfo {
-  final String email;
-  final String? displayName;
-  final String? photoUrl;
-
-  @override
-  String toString() => "$displayName <$email>";
-
-  const UserInfo(this.email, this.displayName, this.photoUrl);
-  static UserInfo? _fromGoogle(GoogleSignInAccount? gUser) {
-    if (gUser == null) return null;
-    return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
-  }
+UserInfo? _convertUser(GoogleSignInAccount? gUser) {
+  if (gUser == null) return null;
+  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
 }
 
 /// A client to interact with a DataMine's storage.
@@ -51,11 +43,11 @@ class DatamineClient {
   StreamSubscription<FileSystemEvent>? _dataWatch;
 
   /// User info for the account used to sign in.
-  UserInfo? get currentUser => UserInfo._fromGoogle(_googleSignIn.currentUser);
+  Future<UserInfo?> get currentUser => _ready.future.then((_) => _fileIDs.user);
 
   /// Subscribe to this stream to be notified when the current user changes.
   late final Stream<UserInfo?> onUserChanged =
-      _googleSignIn.onCurrentUserChanged.map(UserInfo._fromGoogle);
+      _googleSignIn.onCurrentUserChanged.map(_convertUser);
 
   DatamineClient() {
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
@@ -107,16 +99,15 @@ class DatamineClient {
     _log.finer("using ${_cacheDir.path} as the cache directory");
   }
 
-  Future<void> _setUser(String userName, DriveApi api) async {
+  Future<void> _setUser(UserInfo user, DriveApi api) async {
     // I can't see this await really being necessary, but just be safe. In
     // theory signIn could be before all the constructors awaits are finished.
     await _ready.future;
 
     // If we were in anonymous mode previously we need to move all the files
     // into the new user's directory for upload, and copy them to the cache.
-    final prevDataDir = _dataDir;
-    final prevFileIDs = _fileIDs;
-    _initLocalStore(userName);
+    final prevDataDir = _dataDir, prevFileIDs = _fileIDs;
+    _initLocalStore(user.email);
     if (prevDataDir.path.endsWith("anonymous")) {
       await for (final file in prevDataDir.list()) {
         final origFile = File(file.absolute.path);
@@ -127,12 +118,12 @@ class DatamineClient {
       _fileIDs.mergeOld(prevFileIDs);
     }
 
-    final idKey = "$_prefix:$userName:folderId";
+    final idKey = "$_prefix:${user.email}:folderId";
     await api.initFolder(_pref.getString(idKey));
     _pref.setString(idKey, api.folderId);
-    _fileIDs.addRemote(api);
+    _fileIDs.addRemote(user, api);
 
-    _pref.setString(_userKey, userName);
+    _pref.setString(_userKey, user.email);
     _dataDir.list().listen((event) {
       _uploadFile(event.path);
     });
@@ -151,7 +142,7 @@ class DatamineClient {
     } else {
       final client = await _googleSignIn.authenticatedClient();
       final api = DriveApi(drive.DriveApi(client!));
-      await _setUser(user.email, api);
+      await _setUser(_convertUser(user)!, api);
       _onlineReady.complete(api);
     }
   }

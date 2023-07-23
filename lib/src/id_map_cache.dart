@@ -2,6 +2,27 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+class UserInfo {
+  final String email;
+  final String? displayName;
+  final String? photoUrl;
+
+  @override
+  String toString() => "$displayName <$email>";
+
+  const UserInfo(this.email, this.displayName, this.photoUrl);
+  factory UserInfo.fromJson(Map<String, dynamic> json) => UserInfo(
+        json["email"] as String,
+        json["displayName"] as String?,
+        json["photoUrl"] as String?,
+      );
+  Map<String, dynamic> toJson() => {
+        "email": email,
+        "displayName": displayName,
+        "photoUrl": photoUrl,
+      };
+}
+
 abstract class Remote {
   Future<Map<String, String>> readFolder();
 }
@@ -10,12 +31,17 @@ class IDMapCache {
   static const _refreshInt = Duration(days: 1);
   final File _file;
   Remote? _remote;
+  UserInfo? _user;
   DateTime? _lastSync;
   Map<String, String?> _idMap = {};
 
   IDMapCache(String filePath) : _file = File(filePath) {
     if (!_file.existsSync()) return;
+
     final rawJson = jsonDecode(_file.readAsStringSync());
+    _user = rawJson["user"] == null
+        ? null
+        : UserInfo.fromJson(rawJson["user"] as Map<String, dynamic>);
     _lastSync = rawJson["last_sync"] == null
         ? null
         : DateTime.parse(rawJson["last_sync"] as String);
@@ -25,7 +51,8 @@ class IDMapCache {
         {};
   }
 
-  void addRemote(Remote r) {
+  void addRemote(UserInfo user, Remote r) {
+    _user = user;
     _remote = r;
     _refresh();
   }
@@ -45,6 +72,8 @@ class IDMapCache {
       old._file.deleteSync();
     }
   }
+
+  UserInfo? get user => _user;
 
   List<String> listFiles() => _idMap.keys.toList();
 
@@ -85,6 +114,7 @@ class IDMapCache {
 
   void _saveFile() {
     final rawJson = jsonEncode({
+      "user": _user?.toJson(),
       "last_sync": _lastSync?.toIso8601String(),
       "id_map": _idMap,
     });

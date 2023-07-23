@@ -130,11 +130,13 @@ class ClientAuthState extends State<ClientAuth> {
   @override
   void initState() {
     super.initState();
-    _client.onUserChanged.listen((UserInfo? user) {
+    final setUser = (UserInfo? user) {
       setState(() {
         _currentUser = user;
       });
-    });
+    };
+    _client.currentUser.then(setUser);
+    _client.onUserChanged.listen(setUser);
   }
 
   Future<void> _handleSignIn() async {
