@@ -34,6 +34,7 @@ class DatamineClient {
     'https://www.googleapis.com/auth/drive.file',
   ]);
   final _ready = Completer<void>();
+  final _userStream = StreamController<UserInfo?>.broadcast();
   late final SharedPreferences _pref;
   late final String _cacheRoot, _dataRoot;
   late Directory _cacheDir, _dataDir;
@@ -45,9 +46,12 @@ class DatamineClient {
   /// User info for the account used to sign in.
   Future<UserInfo?> get currentUser => _ready.future.then((_) => _fileIDs.user);
 
+  /// True if we haven't signed in this session to start interacting with the
+  /// remote.
+  bool get offline => _googleSignIn.currentUser == null;
+
   /// Subscribe to this stream to be notified when the current user changes.
-  late final Stream<UserInfo?> onUserChanged =
-      _googleSignIn.onCurrentUserChanged.map(_convertUser);
+  late final Stream<UserInfo?> onUserChanged = _userStream.stream;
 
   DatamineClient() {
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
@@ -132,7 +136,8 @@ class DatamineClient {
     });
   }
 
-  void _onUserChange(GoogleSignInAccount? user) async {
+  void _onUserChange(GoogleSignInAccount? gUser) async {
+    final user = _convertUser(gUser);
     if (user == null) {
       _onlineReady = Completer<DriveApi>();
       _dataWatch?.cancel();
@@ -142,9 +147,12 @@ class DatamineClient {
     } else {
       final client = await _googleSignIn.authenticatedClient();
       final api = DriveApi(drive.DriveApi(client!));
-      await _setUser(_convertUser(user)!, api);
+      await _setUser(user, api);
       _onlineReady.complete(api);
     }
+    // Add the user to the stream after everything is done so we capture any
+    // changes made to the non-null value (currently just the photoPath).
+    _userStream.add(user);
   }
 
   Future<void> _uploadFile(String filePath) async {

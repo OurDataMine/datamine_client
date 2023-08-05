@@ -126,6 +126,7 @@ class ClientAuth extends StatefulWidget {
 
 class ClientAuthState extends State<ClientAuth> {
   UserInfo? _currentUser;
+  bool offline = true;
 
   @override
   void initState() {
@@ -133,6 +134,7 @@ class ClientAuthState extends State<ClientAuth> {
     final setUser = (UserInfo? user) {
       setState(() {
         _currentUser = user;
+        offline = _client.offline;
       });
     };
     _client.currentUser.then(setUser);
@@ -151,46 +153,43 @@ class ClientAuthState extends State<ClientAuth> {
 
   @override
   Widget build(BuildContext context) {
-    final user = _currentUser;
+    final Widget userDisplay, action;
 
+    final user = _currentUser;
     if (user == null) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: <Widget>[
-          const Text('You are not currently signed in.'),
-          ElevatedButton(
-            onPressed: _handleSignIn,
-            child: const Text('SIGN IN'),
-          ),
-        ],
-      );
+      userDisplay = Text("Sign in to select account");
+    } else {
+      final String? photoPath = user.photoPath;
+      final CircleAvatar avatar;
+      if (photoPath != null) {
+        avatar = CircleAvatar(
+          radius: 14,
+          foregroundImage: FileImage(File(photoPath)),
+        );
+      } else {
+        avatar = CircleAvatar(
+          backgroundColor: Colors.green,
+          child: Text(initials(user.displayName ?? "")),
+        );
+      }
+      userDisplay = ListTile(leading: avatar, title: Text(user.toString()));
     }
 
-    final String displayName = user.toString();
-    final String? photoUrl = user.photoUrl;
-
-    final CircleAvatar avatar;
-    if (photoUrl != null) {
-      avatar = CircleAvatar(
-        radius: 14,
-        foregroundImage: NetworkImage(photoUrl),
+    if (offline) {
+      action = ElevatedButton(
+        onPressed: _handleSignIn,
+        child: const Text("SIGN IN"),
       );
     } else {
-      avatar = CircleAvatar(
-        backgroundColor: Colors.brown.shade800,
-        child: Text(initials(displayName)),
+      action = ElevatedButton(
+        onPressed: _handleSignOut,
+        child: const Text("SIGN OUT"),
       );
     }
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: <Widget>[
-        ListTile(leading: avatar, title: Text(displayName)),
-        ElevatedButton(
-          onPressed: _handleSignOut,
-          child: const Text('SIGN OUT'),
-        ),
-      ],
+      children: <Widget>[userDisplay, action],
     );
   }
 }

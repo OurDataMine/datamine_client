@@ -2,24 +2,30 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as path;
+import 'package:http/http.dart' as http;
+
 class UserInfo {
   final String email;
   final String? displayName;
   final String? photoUrl;
+  String? photoPath;
 
   @override
   String toString() => "$displayName <$email>";
 
-  const UserInfo(this.email, this.displayName, this.photoUrl);
+  UserInfo(this.email, this.displayName, this.photoUrl, [this.photoPath]);
   factory UserInfo.fromJson(Map<String, dynamic> json) => UserInfo(
-        json["email"] as String,
-        json["displayName"] as String?,
-        json["photoUrl"] as String?,
+        json["email"],
+        json["displayName"],
+        json["photoUrl"],
+        json["photoPath"],
       );
   Map<String, dynamic> toJson() => {
         "email": email,
         "displayName": displayName,
         "photoUrl": photoUrl,
+        "photoPath": photoPath,
       };
 }
 
@@ -52,9 +58,31 @@ class IDMapCache {
   }
 
   void addRemote(UserInfo user, Remote r) {
+    final photoUrl = user.photoUrl;
+    if (photoUrl != null) {
+      if (_user?.photoPath != null) {
+        user.photoPath = _user!.photoPath;
+      } else {
+        // Not sure the URL will ever have an extension in it, but if it does
+        // go ahead and use it the the filename for the cached image.
+        final cacheFile = "${user.email}-avatar${path.extension(photoUrl)}";
+        user.photoPath = path.join(path.dirname(_file.path), cacheFile);
+      }
+      http.get(Uri.parse(photoUrl)).then((response) {
+        final imgFile = File(user.photoPath!);
+        imgFile.writeAsBytesSync(response.bodyBytes);
+      });
+    }
+
+    final userChanged = user != _user;
     _user = user;
     _remote = r;
-    _refresh();
+    // This logic to make sure we save changes to the user if the user changed
+    // is unlikely to be necessary in real use cases, but it's helpful for me
+    // while testing
+    _refresh().then((bool saved) {
+      if (!saved && userChanged) _saveFile();
+    });
   }
 
   /// mergeOld is intended to be use only when a previously unauthenticated
@@ -92,11 +120,11 @@ class IDMapCache {
     _saveFile();
   }
 
-  Future<void> _refresh({bool force = false}) async {
-    if (_remote == null) return;
+  Future<bool> _refresh({bool force = false}) async {
+    if (_remote == null) return false;
     if (!force && _lastSync != null) {
       if (DateTime.now().difference(_lastSync!) < _refreshInt) {
-        return;
+        return false;
       }
     }
 
@@ -110,6 +138,7 @@ class IDMapCache {
 
     _lastSync = DateTime.now();
     _saveFile();
+    return true;
   }
 
   void _saveFile() {
