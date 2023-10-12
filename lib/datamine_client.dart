@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:async/async.dart';
 import 'package:hash/hash.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 
+import 'package:background_fetch/background_fetch.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -67,6 +69,17 @@ class DatamineClient {
       _log.finest("using $_cacheRoot as the root cache directory");
       return _initLocalStore(_pref.getString(_userKey));
     }).then(_ready.complete, onError: _ready.completeError);
+
+    BackgroundFetch.configure(
+      BackgroundFetchConfig(
+        minimumFetchInterval: 15,
+      ),
+      _bgUpload,
+      (String taskId) async {
+        _log.warning("background upload task $taskId timed out");
+        BackgroundFetch.finish(taskId);
+      },
+    );
   }
 
   Future<void> signIn() async {
@@ -128,12 +141,6 @@ class DatamineClient {
     _fileIDs.addRemote(user, api);
 
     _pref.setString(_userKey, user.email);
-    _dataDir.list().listen((event) {
-      _uploadFile(event.path);
-    });
-    _dataWatch = _dataDir.watch(events: FileSystemEvent.create).listen((event) {
-      _uploadFile(event.path);
-    });
   }
 
   void _onUserChange(GoogleSignInAccount? gUser) async {
@@ -155,14 +162,49 @@ class DatamineClient {
     _userStream.add(user);
   }
 
-  Future<void> _uploadFile(String filePath) async {
-    final api = await _onlineReady.future;
-    final fileName = path.basename(filePath);
-    final local = File(path.join(_dataDir.path, filePath));
+  void _bgUpload(String taskId) {
+    _log.finest("background upload task $taskId started");
 
+    _dataDir.list().firstOrNull.then((entity) {
+      if (entity == null) {
+        _log.finest("upload task $taskId ended because no files to upload");
+      } else {
+        _log.finer("upload task $taskId uploading ${entity.path}");
+        return _uploadFile(entity.path);
+      }
+    }).catchError((err, stacktrace) {
+      _log.severe("background file upload failed: $err\n$stacktrace");
+      return null;
+    }).then((_) {
+      BackgroundFetch.finish(taskId);
+    });
+  }
+
+  Future<void> _uploadFile(String filePath) async {
+    final fileName = path.basename(filePath);
+
+    // This is currently done from the background which means there's a good
+    // chance the original auth token has expired. We don't have a good way of
+    // detecting this or of swapping the authentication of an existing client
+    // so we always create a new one in this function.
+    await _googleSignIn.signInSilently(reAuthenticate: true);
+    final client = await _googleSignIn.authenticatedClient();
+    if (client == null) {
+      _log.info("uploading $fileName skipped because no client available");
+      return;
+    }
+    final api = DriveApi(drive.DriveApi(client));
+    await _onlineReady.future
+        .then((origApi) => origApi.folderId)
+        .timeout(const Duration(milliseconds: 5), onTimeout: () => "")
+        .then(api.initFolder);
+
+    _log.fine("starting upload $fileName");
+    final local = File(filePath);
     final remoteId = await api.uploadFile(fileName, local);
     _fileIDs.setID(fileName, remoteId);
     await local.delete();
+    _log.info("finished uploading $fileName");
   }
 
   Future<List<String>> listFiles() async {
@@ -192,6 +234,7 @@ class DatamineClient {
       copies.add(local.copy(path.join(_cacheDir.path, id)));
     }
     await Future.wait(copies);
+    _fileIDs.setID(id, null);
 
     return id;
   }
