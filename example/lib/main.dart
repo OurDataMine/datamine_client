@@ -141,12 +141,40 @@ class ClientAuthState extends State<ClientAuth> {
     _client.onUserChanged.listen(setUser);
   }
 
-  Future<void> _handleSignIn() async {
-    try {
-      await _client.signIn();
-    } catch (error) {
-      print(error);
-    }
+  void _handleSignIn(BuildContext context) {
+    _client.signIn().then((conflict) async {
+      if (conflict == null) return;
+
+      final force = await showDialog(
+        context: context,
+        builder: (context) {
+          return _buildConfirm(context, conflict);
+        },
+      );
+      if (force) return _client.signIn(force: true).then((_) {});
+    }).catchError((error) {
+      Logger.root.severe("failed signing in", error);
+    });
+  }
+
+  Widget _buildConfirm(BuildContext context, DeviceInfo conflict) {
+    return SimpleDialog(
+      title: const Text("Claim Write Access"),
+      children: [
+        Text("Data Mine is currently being managed by ${conflict.displayName}. "
+            "You will not be able to upload anything from this device.\n\n"
+            "Would you like to transfer management to this device? "
+            "Any pending updates from your other device might be lost"),
+        SimpleDialogOption(
+          child: const Text("Claim Write Access"),
+          onPressed: () => Navigator.pop(context, true),
+        ),
+        SimpleDialogOption(
+          child: const Text("Cancel"),
+          onPressed: () => Navigator.pop(context, false),
+        ),
+      ],
+    );
   }
 
   Future<void> _handleSignOut() => _client.signOut();
@@ -177,7 +205,7 @@ class ClientAuthState extends State<ClientAuth> {
 
     if (offline) {
       action = ElevatedButton(
-        onPressed: _handleSignIn,
+        onPressed: () => _handleSignIn(context),
         child: const Text("SIGN IN"),
       );
     } else {

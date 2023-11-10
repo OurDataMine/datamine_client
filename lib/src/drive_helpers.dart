@@ -10,27 +10,17 @@ final _log = Logger("datamine_client");
 
 class DriveApi implements Remote {
   final drive.DriveApi _baseApi;
-  String _folderId = "";
+  late final Future<String> _folderId;
 
-  String get folderId => _folderId;
-
-  DriveApi(this._baseApi);
-
-  Future<void> initFolder(String? savedId) async {
-    if (savedId != null) {
-      _folderId = savedId;
-      return;
-    }
-
-    final paths = [
-      "my_data_mine",
-      (await PackageInfo.fromPlatform()).appName,
-    ];
-    String? prevId;
-    for (final name in paths) {
-      prevId = await _ensureFolder(name, prevId);
-    }
-    _folderId = prevId!;
+  DriveApi(this._baseApi) {
+    _folderId = PackageInfo.fromPlatform().then((info) async {
+      final paths = ["my_data_mine", info.appName];
+      String? prevId;
+      for (final name in paths) {
+        prevId = await _ensureFolder(name, prevId);
+      }
+      return prevId!;
+    });
   }
 
   Future<String> _ensureFolder(String name, String? parent) async {
@@ -60,7 +50,7 @@ class DriveApi implements Remote {
   @override
   Future<Map<String, String>> readFolder() async {
     const orderBy = "createdTime desc";
-    final query = "'$_folderId' in parents";
+    final query = "'${await _folderId}' in parents";
 
     final Map<String, String> result = {};
     String? nextPage;
@@ -77,8 +67,8 @@ class DriveApi implements Remote {
     return result;
   }
 
-  Future<drive.File?> _getFileInfo(String fileName) async {
-    final query = "name='$fileName' and '$_folderId' in parents";
+  Future<drive.File?> _getFileInfo(String fileName, String parent) async {
+    final query = "name='$fileName' and '$parent' in parents";
     final list = await _baseApi.files.list(q: query);
     final files = list.files ?? [];
 
@@ -101,12 +91,13 @@ class DriveApi implements Remote {
   }
 
   Future<String> uploadFile(String fileName, File contents) async {
-    final remote = await _getFileInfo(fileName);
+    final parent = await _folderId;
+    final remote = await _getFileInfo(fileName, parent);
     final media = drive.Media(contents.openRead(), await contents.length());
 
     if (remote == null) {
       _log.finer("creating new file $fileName");
-      final driveFile = drive.File(name: fileName, parents: [_folderId]);
+      final driveFile = drive.File(name: fileName, parents: [parent]);
       final resp = await _baseApi.files.create(driveFile, uploadMedia: media);
       return resp.id!;
     }
