@@ -28,7 +28,7 @@ migrate_working_dir/
 .pub/
 .pub-cache/
 .dart_tool/
-pubspec.lock
+/pubspec.lock
 flutter_export_environment.sh
 
 Podfile.lock

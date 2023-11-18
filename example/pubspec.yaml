@@ -8,9 +8,9 @@ environment:
 
 dependencies:
   datamine_client: {path: ../}
-  file_picker: ^3.0.4
+  file_picker: ^6.1.1
   flutter: {sdk: flutter}
-  http: ^0.13.0
+  http: ^1.1.0
 
 flutter:
   uses-material-design: true
