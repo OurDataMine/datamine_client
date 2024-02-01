@@ -2,14 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-abstract class Remote {
+abstract class IDMapRemote {
   Future<Map<String, String>> readFolder();
 }
 
 class IDMapCache {
   static const _refreshInt = Duration(days: 1);
   final File _file;
-  Remote? _remote;
+  IDMapRemote? _remote;
   DateTime? _lastSync;
   Map<String, String?> _idMap = {};
 
@@ -26,7 +26,7 @@ class IDMapCache {
         {};
   }
 
-  void addRemote(Remote r) {
+  void addRemote(IDMapRemote r) {
     _remote = r;
     _refresh();
   }

@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:async/async.dart';
 import 'package:hash/hash.dart';
-import 'package:logging/logging.dart';
 import 'package:path/path.dart' as path;
 
 import 'package:background_fetch/background_fetch.dart';
@@ -20,7 +19,7 @@ import 'src/simple_store.dart';
 
 export 'src/info_classes.dart' show DeviceInfo, UserInfo;
 
-final _log = Logger("datamine_client");
+final _log = log;
 
 UserInfo? _convertUser(GoogleSignInAccount? gUser) {
   if (gUser == null) return null;
@@ -72,12 +71,12 @@ class DatamineClient {
     }).then(_ready.complete, onError: _ready.completeError);
 
     BackgroundFetch.configure(
-      BackgroundFetchConfig(minimumFetchInterval: 15),
+      BackgroundFetchConfig(
+        minimumFetchInterval: 15,
+        requiredNetworkType: NetworkType.ANY,
+      ),
       _bgUpload,
-      (String taskId) async {
-        _log.warning("background upload task $taskId timed out");
-        BackgroundFetch.finish(taskId);
-      },
+      _bgTimeout,
     );
   }
 
@@ -122,8 +121,7 @@ class DatamineClient {
   }
 
   Future<void> _claimPrimDevice(DriveApi api) async {
-    final deviceName = await getDeviceName();
-    final info = DeviceInfo(_store.fingerprint, deviceName);
+    final info = DeviceInfo(_store.fingerprint, await deviceName);
     final file = File(path.join(_cacheDir.path, "primary_device.json"));
     await file.writeAsString(jsonEncode(info.toJson()));
     await api.uploadFile(_ownerFileName, file);
@@ -220,6 +218,11 @@ class DatamineClient {
     }).then((_) {
       BackgroundFetch.finish(taskId);
     });
+  }
+
+  void _bgTimeout(String taskId) {
+    _log.warning("background task $taskId timed out");
+    BackgroundFetch.finish(taskId);
   }
 
   Future<void> _uploadFile(String filePath) async {

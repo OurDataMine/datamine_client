@@ -1,0 +1,166 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+import 'package:googleapis/drive/v3.dart' as drive;
+
+import './backends.dart';
+import '../id_map_cache.dart';
+
+class GDriveBackend implements Backend, IDMapRemote {
+  final _googleSignIn = GoogleSignIn(scopes: [
+    'profile',
+    'https://www.googleapis.com/auth/drive.file',
+  ]);
+  final IDMapCache _idCache;
+  String _rootFolder = '';
+  Completer<drive.DriveApi> _ready = Completer();
+
+  GDriveBackend(this._idCache) {
+    _idCache.addRemote(this);
+    _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
+  }
+
+  @override
+  Future<UserInfo?> signIn() async {
+    GoogleSignInAccount? user;
+    try {
+      user = await _googleSignIn.signInSilently(
+          suppressErrors: false, reAuthenticate: true);
+    } catch (err) {
+      log.info("silent sign in failed", err);
+    }
+    return _convertUser(user ?? await _googleSignIn.signIn());
+  }
+
+  @override
+  Future<void> signOut() => _googleSignIn.signOut();
+
+  void _onUserChange(GoogleSignInAccount? user) async {
+    // We don't expect a non-null user to come through if `ready` is
+    // already complete, but if it does happen we want to get a new API
+    // that will use the new credentials (that should last longer).
+    if (_ready.isCompleted) {
+      _ready = Completer();
+      if (user != null) {
+        log.warning("unexpected user change while signed in $user");
+      }
+    }
+    if (user == null) return;
+
+    final client = await _googleSignIn.authenticatedClient();
+    final api = drive.DriveApi(client!);
+
+    String? prevId;
+    for (final name in ["my_data_mine", await appName]) {
+      prevId = await _ensureFolder(api, name, prevId);
+    }
+    _rootFolder = prevId!;
+
+    _ready.complete(api);
+  }
+
+  @override
+  Future<Map<String, String>> readFolder() async {
+    const orderBy = "createdTime desc";
+    final api = await _ready.future;
+    final query = "'$_rootFolder' in parents";
+
+    final Map<String, String> result = {};
+    String? nextPage;
+    do {
+      final list = await api.files.list(
+        q: query,
+        orderBy: orderBy,
+        pageToken: nextPage,
+      );
+      result.addAll({for (final f in list.files!) f.name!: f.id!});
+      nextPage = list.nextPageToken;
+    } while (nextPage != null);
+
+    return result;
+  }
+
+  @override
+  Future<File> downloadFile(String fileName, String destination) async {
+    final driveId = await _idCache.getID(fileName);
+    if (driveId == null) {
+      throw FileSystemException("file not found", fileName);
+    }
+
+    final api = await _ready.future;
+    final driveFile = await api.files.get(driveId,
+        downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
+
+    final result = File(destination);
+    final sink = result.openWrite();
+    await sink.addStream(driveFile.stream);
+    await sink.close();
+    return result;
+  }
+
+  @override
+  Future<void> uploadFile(String fileName, File contents) async {
+    final api = await _ready.future;
+    final remote = await _getFileInfo(api, fileName, parent: _rootFolder);
+    final media = drive.Media(contents.openRead(), await contents.length());
+
+    final drive.File resp;
+    if (remote == null) {
+      log.finer("creating new file $fileName");
+      final driveFile = drive.File(name: fileName, parents: [_rootFolder]);
+      resp = await api.files.create(driveFile, uploadMedia: media);
+    } else {
+      final driveId = remote.id!;
+      log.finer("updating file $fileName (drive ID = $driveId)");
+      resp = await api.files.update(remote, driveId, uploadMedia: media);
+    }
+    _idCache.setID(fileName, resp.id);
+  }
+}
+
+UserInfo? _convertUser(GoogleSignInAccount? gUser) {
+  if (gUser == null) return null;
+  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
+}
+
+Future<String> _ensureFolder(
+  drive.DriveApi api,
+  String name,
+  String? parent,
+) async {
+  const folderType = 'application/vnd.google-apps.folder';
+
+  final file =
+      await _getFileInfo(api, name, parent: parent, mimeType: folderType);
+  if (file != null) return file.id!;
+
+  log.fine("creating new folder $name with parent $parent");
+  final newFolder = await api.files.create(drive.File(
+    name: name,
+    mimeType: folderType,
+    parents: parent != null ? [parent] : null,
+  ));
+  return newFolder.id!;
+}
+
+Future<drive.File?> _getFileInfo(
+  drive.DriveApi api,
+  String name, {
+  String? parent,
+  String? mimeType,
+}) async {
+  String query = "name='$name'";
+  if (parent != null) query += " and '$parent' in parents";
+  if (mimeType != null) query += "and mimeType='$mimeType'";
+
+  final list = await api.files.list(q: query);
+  final files = list.files ?? [];
+
+  if (files.isEmpty) return null;
+  if (files.length > 1) {
+    log.warning("ambiguous remote: ${files.length} files match $name");
+  }
+  return files[0];
+}

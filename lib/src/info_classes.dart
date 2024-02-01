@@ -2,7 +2,13 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
+import 'package:logging/logging.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+
+final log = Logger("datamine_client");
+final appName = PackageInfo.fromPlatform().then((info) => info.appName);
+final deviceName = _getDeviceName();
 
 class UserInfo {
   final String email;
@@ -44,7 +50,7 @@ class UserInfo {
   }
 }
 
-Future<String> getDeviceName() {
+Future<String> _getDeviceName() {
   final plugin = DeviceInfoPlugin();
   final possible = [
     plugin.androidInfo.then((info) => info.product),

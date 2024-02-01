@@ -8,7 +8,7 @@ import 'id_map_cache.dart';
 
 final _log = Logger("datamine_client");
 
-class DriveApi implements Remote {
+class DriveApi implements IDMapRemote {
   final drive.DriveApi _baseApi;
   late final Future<String> _folderId;
 

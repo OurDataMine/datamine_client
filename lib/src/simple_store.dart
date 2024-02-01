@@ -1,19 +1,17 @@
 import 'dart:convert';
 
-import 'package:datamine_client/src/info_classes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+
+import './info_classes.dart';
 
 class SimpleStore {
   static const _prefix = "_dmc";
 
   static const _uuid = Uuid();
   late final SharedPreferences _sharedPref;
-  late final Future<void> ready;
-
-  SimpleStore() {
-    ready = SharedPreferences.getInstance().then((val) => _sharedPref = val);
-  }
+  late final ready =
+      SharedPreferences.getInstance().then((val) => _sharedPref = val);
 
   String get fingerprint {
     const key = "$_prefix:fingerprint";
