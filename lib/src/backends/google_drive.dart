@@ -6,19 +6,17 @@ import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sig
 import 'package:googleapis/drive/v3.dart' as drive;
 
 import './backends.dart';
-import '../id_map_cache.dart';
 
 class GDriveBackend implements Backend, IDMapRemote {
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
     'https://www.googleapis.com/auth/drive.file',
   ]);
-  final IDMapCache _idCache;
   String _rootFolder = '';
   Completer<drive.DriveApi> _ready = Completer();
+  Completer<IDMapCache> _idCache = Completer();
 
-  GDriveBackend(this._idCache) {
-    _idCache.addRemote(this);
+  GDriveBackend() {
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
   }
 
@@ -35,7 +33,16 @@ class GDriveBackend implements Backend, IDMapRemote {
   }
 
   @override
-  Future<void> signOut() => _googleSignIn.signOut();
+  Future<void> signOut() {
+    _idCache = Completer();
+    return _googleSignIn.signOut();
+  }
+
+  @override
+  void addIDCache(IDMapCache cache) {
+    cache.addRemote(this);
+    _idCache.complete(cache);
+  }
 
   void _onUserChange(GoogleSignInAccount? user) async {
     // We don't expect a non-null user to come through if `ready` is
@@ -84,7 +91,8 @@ class GDriveBackend implements Backend, IDMapRemote {
 
   @override
   Future<File> downloadFile(String fileName, String destination) async {
-    final driveId = await _idCache.getID(fileName);
+    final idCache = await _idCache.future;
+    final driveId = await idCache.getID(fileName);
     if (driveId == null) {
       throw FileSystemException("file not found", fileName);
     }
@@ -102,6 +110,7 @@ class GDriveBackend implements Backend, IDMapRemote {
 
   @override
   Future<void> uploadFile(String fileName, File contents) async {
+    final idCache = await _idCache.future;
     final api = await _ready.future;
     final remote = await _getFileInfo(api, fileName, parent: _rootFolder);
     final media = drive.Media(contents.openRead(), await contents.length());
@@ -116,7 +125,7 @@ class GDriveBackend implements Backend, IDMapRemote {
       log.finer("updating file $fileName (drive ID = $driveId)");
       resp = await api.files.update(remote, driveId, uploadMedia: media);
     }
-    _idCache.setID(fileName, resp.id);
+    idCache.setID(fileName, resp.id);
   }
 }
 
@@ -153,7 +162,7 @@ Future<drive.File?> _getFileInfo(
 }) async {
   String query = "name='$name'";
   if (parent != null) query += " and '$parent' in parents";
-  if (mimeType != null) query += "and mimeType='$mimeType'";
+  if (mimeType != null) query += " and mimeType='$mimeType'";
 
   final list = await api.files.list(q: query);
   final files = list.files ?? [];

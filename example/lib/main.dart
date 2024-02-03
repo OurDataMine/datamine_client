@@ -37,20 +37,27 @@ void main() {
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
-  Widget _buildLayout(BuildContext context, BoxConstraints contraints) {
-    final authHeight = min(contraints.maxHeight / 3, 110.0);
-    final fileHeight = contraints.maxHeight - authHeight - 15;
+  Widget _fittedSection(Widget child, double height, double width) {
+    return ConstrainedBox(
+      constraints: BoxConstraints.tightFor(height: height),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: ConstrainedBox(
+          constraints: BoxConstraints.tightFor(width: width),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLayout(BuildContext context, BoxConstraints constraints) {
+    final authHeight = min(constraints.maxHeight / 3, 110.0);
+
     return Column(
       children: [
-        ConstrainedBox(
-          constraints: BoxConstraints.expand(height: authHeight),
-          child: ClientAuth(),
-        ),
+        _fittedSection(ClientAuth(), authHeight, constraints.maxWidth),
         Divider(height: 15, thickness: 5),
-        ConstrainedBox(
-          constraints: BoxConstraints.expand(height: fileHeight),
-          child: ClientFiles(),
-        ),
+        Expanded(child: ClientFiles()),
       ],
     );
   }
@@ -153,7 +160,7 @@ class ClientAuthState extends State<ClientAuth> {
       );
       if (force) return _client.signIn(force: true).then((_) {});
     }).catchError((error) {
-      Logger.root.severe("failed signing in", error);
+      Logger.root.severe("failed signing in: ", error);
     });
   }
 
