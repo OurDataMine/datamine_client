@@ -12,7 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'src/backends/backends.dart';
 import 'src/simple_store.dart';
 
-export 'src/info_classes.dart' show DeviceInfo, UserInfo;
+export 'src/info_classes.dart' show OwnershipException, DeviceInfo, UserInfo;
 
 final _log = log;
 
@@ -67,7 +67,7 @@ class DatamineClient {
   /// If signIn returns a non-null DeviceInfo that represents the device that
   /// currently "owns" the Data Mine. This device will not be able to write any
   /// files to the Data Mine unless signIn is called again with `force: true`.
-  Future<DeviceInfo?> signIn({bool force = false}) async {
+  Future<void> signIn({bool force = false}) async {
     if (!offline) throw Exception("cannot sign in multiple times");
 
     _backend = GDriveBackend();
@@ -77,13 +77,12 @@ class DatamineClient {
     _backend.addIDCache(_fileIDs);
 
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.fingerprint == _store.fingerprint) {
-      return null;
-    } else if (curOwner == null || force) {
-      _claimPrimDevice();
-      return null;
-    } else {
-      return curOwner;
+    if (curOwner?.fingerprint != _store.fingerprint) {
+      if (curOwner == null || force) {
+        _claimPrimDevice();
+      } else {
+        throw OwnershipException(curOwner);
+      }
     }
   }
 
@@ -96,7 +95,12 @@ class DatamineClient {
 
   Future<DeviceInfo?> _checkPrimDevice() async {
     final filePath = path.join(_cacheDir.path, "primary_device.json");
-    final file = await _backend.downloadFile(_ownerFileName, filePath);
+    final File file;
+    try {
+      file = await _backend.downloadFile(_ownerFileName, filePath);
+    } on FileSystemException catch (_) {
+      return null;
+    }
     final rawJson = jsonDecode(await file.readAsString());
     return DeviceInfo.fromJson(rawJson);
   }

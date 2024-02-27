@@ -64,6 +64,15 @@ Future<String> _getDeviceName() {
   });
 }
 
+class OwnershipException implements Exception {
+  final DeviceInfo currentOwner;
+  OwnershipException(this.currentOwner);
+
+  @override
+  String toString() =>
+      "data mine currently owned by another device (${currentOwner.displayName})";
+}
+
 class DeviceInfo {
   final String fingerprint;
   final String displayName;

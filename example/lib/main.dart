@@ -149,17 +149,16 @@ class ClientAuthState extends State<ClientAuth> {
   }
 
   void _handleSignIn(BuildContext context) {
-    _client.signIn().then((conflict) async {
-      if (conflict == null) return;
-
+    _client.signIn().catchError((error) async {
+      final conflict = (error as OwnershipException).currentOwner;
       final force = await showDialog(
         context: context,
         builder: (context) {
           return _buildConfirm(context, conflict);
         },
       );
-      if (force) return _client.signIn(force: true).then((_) {});
-    }).catchError((error) {
+      if (force) return _client.signIn(force: true);
+    }, test: (err) => err is OwnershipException).catchError((error) {
       Logger.root.severe("failed signing in: ", error);
     });
   }

@@ -3,14 +3,14 @@ description: Example of Data Mine Client plugin, but mainly for me to more easil
 publish_to: none
 
 environment:
-  sdk: '>=2.18.2 <3.0.0'
+  sdk: ">=2.18.2 <4.0.0"
   flutter: ">=1.17.0"
 
 dependencies:
-  datamine_client: {path: ../}
+  datamine_client: { path: ../ }
   file_picker: ^6.1.1
-  flutter: {sdk: flutter}
-  http: ^1.1.0
+  flutter: { sdk: flutter }
+  http: ^1.2.0
 
 flutter:
   uses-material-design: true
