@@ -70,20 +70,20 @@ class OwnershipException implements Exception {
 
   @override
   String toString() =>
-      "data mine currently owned by another device (${currentOwner.displayName})";
+      "data mine currently owned by another device (${currentOwner.deviceName})";
 }
 
 class DeviceInfo {
-  final String fingerprint;
-  final String displayName;
+  final String uuid;
+  final String deviceName;
 
-  const DeviceInfo(this.fingerprint, this.displayName);
+  const DeviceInfo(this.uuid, this.deviceName);
   factory DeviceInfo.fromJson(Map<String, dynamic> json) => DeviceInfo(
-        json["fingerprint"],
-        json["display_name"],
+        json["uuid"] ?? "",
+        json["device_name"] ?? "",
       );
   Map<String, dynamic> toJson() => {
-        "fingerprint": fingerprint,
-        "display_name": displayName,
+        "uuid": uuid,
+        "device_name": deviceName,
       };
 }

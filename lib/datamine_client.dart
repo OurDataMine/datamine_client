@@ -67,7 +67,7 @@ class DatamineClient {
     _backend.addIDCache(_fileIDs);
 
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.fingerprint != _store.fingerprint) {
+    if (curOwner?.uuid != _store.fingerprint) {
       if (curOwner == null || force) {
         _claimPrimDevice();
       } else {
@@ -177,7 +177,7 @@ class DatamineClient {
     // so we always create a new one in this function.
     await _backend.signIn();
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.fingerprint != _store.fingerprint) {
+    if (curOwner?.uuid != _store.fingerprint) {
       _log.warning("uploading $fileName skipped because ownership conflict");
       return;
     }
