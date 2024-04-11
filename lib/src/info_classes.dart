@@ -53,14 +53,14 @@ class UserInfo {
 Future<String> _getDeviceName() {
   final plugin = DeviceInfoPlugin();
   final possible = [
-    plugin.androidInfo.then((info) => info.product),
+    plugin.androidInfo.then((info) => info.model),
     plugin.iosInfo.then((info) => info.localizedModel),
   ].map((f) => f.catchError((_) => ""));
 
   return Future.wait(possible).then((values) {
     final result = values.where((name) => name != "").first;
     if (result != "") return result;
-    return "Uknown";
+    return "Unknown";
   });
 }
 
