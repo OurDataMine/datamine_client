@@ -239,12 +239,6 @@ class DatamineClient {
       return result;
     }
 
-    final driveId = await _fileIDs.getID(id);
-    if (driveId == null) {
-      throw FileSystemException("file not found", id);
-    }
-
-    _log.fine("downloading file $id as google drive file $driveId");
-    return _backend.downloadFile(driveId, result.path);
+    return _backend.downloadFile(id, result.path);
   }
 }

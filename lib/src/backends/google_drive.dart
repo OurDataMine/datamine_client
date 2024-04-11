@@ -96,7 +96,7 @@ class GDriveBackend implements Backend, IDMapRemote {
     if (driveId == null) {
       throw FileSystemException("file not found", fileName);
     }
-
+    log.fine("downloading file $fileName as google drive file $driveId");
     final api = await _ready.future;
     final driveFile = await api.files.get(driveId,
         downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
