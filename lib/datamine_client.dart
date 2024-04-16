@@ -66,6 +66,10 @@ class DatamineClient {
     _userStream.sink.add(user);
     _backend.addIDCache(_fileIDs);
 
+    await aquireOwnership(force: force);
+  }
+
+  Future<void> aquireOwnership({bool force=false}) async {
     final curOwner = await _checkPrimDevice();
     if (curOwner?.uuid != _store.fingerprint) {
       if (curOwner == null || force) {
@@ -152,20 +156,23 @@ class DatamineClient {
     _store.currentUser = user;
   }
 
-  void bgUpload(String taskId) {
+  Future<int> bgUpload(String taskId, {int maxUploads = 1}) async {
     _log.finest("background upload task $taskId started");
+    final fileStream = _dataDir.list();
 
-    _dataDir.list().firstOrNull.then((entity) {
+    for (int ii = 0; ii < maxUploads; ii++) {
+      final entity = await fileStream.firstOrNull.onError((error, stackTrace) {
+        _log.severe("background file upload failed: $error\n$stackTrace");
+        return;
+      });
       if (entity == null) {
         _log.finest("upload task $taskId ended because no files to upload");
       } else {
         _log.finer("upload task $taskId uploading ${entity.path}");
-        return _uploadFile(entity.path);
+        await _uploadFile(entity.path);
       }
-    }).catchError((err, stacktrace) {
-      _log.severe("background file upload failed: $err\n$stacktrace");
-      return null;
-    });
+    }
+    return fileStream.length;
   }
 
   Future<void> _uploadFile(String filePath) async {
