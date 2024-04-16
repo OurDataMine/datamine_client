@@ -115,7 +115,7 @@ class GDriveBackend implements Backend, IDMapRemote {
     final media = drive.Media(contents.openRead(), await contents.length());
     final drive.File resp;
 
-    String? remoteId = idCache.getID(fileName);
+    String? remoteId = await idCache.getID(fileName);
     if (remoteId == null) {
       remoteId = (await _getFileInfo(api, fileName, parent: _rootFolder))?.id;
     }
