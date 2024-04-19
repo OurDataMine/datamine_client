@@ -13,8 +13,8 @@ class SimpleStore {
   late final ready =
       SharedPreferences.getInstance().then((val) => _sharedPref = val);
 
-  String get fingerprint {
-    const key = "$_prefix:fingerprint";
+  String get deviceId {
+    const key = "$_prefix:deviceId";
     var value = _sharedPref.getString(key);
     if (value != null) return value;
 

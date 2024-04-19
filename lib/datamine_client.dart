@@ -71,7 +71,7 @@ class DatamineClient {
 
   Future<void> aquireOwnership({bool force=false}) async {
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.uuid != _store.fingerprint) {
+    if (curOwner?.deviceId != _store.deviceId) {
       if (curOwner == null || force) {
         _claimPrimDevice();
       } else {
@@ -100,7 +100,7 @@ class DatamineClient {
   }
 
   Future<void> _claimPrimDevice() async {
-    final info = DeviceInfo(_store.fingerprint, await deviceName);
+    final info = DeviceInfo(_store.deviceId, await deviceName);
     final file = File(path.join(_cacheDir.path, "primary_device.json"));
     await file.writeAsString(jsonEncode(info.toJson()));
     await _backend.uploadFile(_ownerFileName, file);
@@ -184,7 +184,7 @@ class DatamineClient {
     // so we always create a new one in this function.
     await _backend.signIn();
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.uuid != _store.fingerprint) {
+    if (curOwner?.deviceId != _store.deviceId) {
       _log.warning("uploading $fileName skipped because ownership conflict");
       return;
     }

@@ -74,16 +74,16 @@ class OwnershipException implements Exception {
 }
 
 class DeviceInfo {
-  final String uuid;
+  final String deviceId;
   final String deviceName;
 
-  const DeviceInfo(this.uuid, this.deviceName);
+  const DeviceInfo(this.deviceId, this.deviceName);
   factory DeviceInfo.fromJson(Map<String, dynamic> json) => DeviceInfo(
-        json["uuid"] ?? "",
+        json["deviceId"] ?? "",
         json["device_name"] ?? "",
       );
   Map<String, dynamic> toJson() => {
-        "uuid": uuid,
+        "deviceId": deviceId,
         "device_name": deviceName,
       };
 }
