@@ -53,14 +53,14 @@ class UserInfo {
 Future<String> _getDeviceName() {
   final plugin = DeviceInfoPlugin();
   final possible = [
-    plugin.androidInfo.then((info) => info.product),
+    plugin.androidInfo.then((info) => info.model),
     plugin.iosInfo.then((info) => info.localizedModel),
   ].map((f) => f.catchError((_) => ""));
 
   return Future.wait(possible).then((values) {
     final result = values.where((name) => name != "").first;
     if (result != "") return result;
-    return "Uknown";
+    return "Unknown";
   });
 }
 
@@ -70,20 +70,20 @@ class OwnershipException implements Exception {
 
   @override
   String toString() =>
-      "data mine currently owned by another device (${currentOwner.displayName})";
+      "data mine currently owned by another device (${currentOwner.deviceName})";
 }
 
 class DeviceInfo {
-  final String fingerprint;
-  final String displayName;
+  final String deviceId;
+  final String deviceName;
 
-  const DeviceInfo(this.fingerprint, this.displayName);
+  const DeviceInfo(this.deviceId, this.deviceName);
   factory DeviceInfo.fromJson(Map<String, dynamic> json) => DeviceInfo(
-        json["fingerprint"],
-        json["display_name"],
+        json["deviceId"] ?? "",
+        json["device_name"] ?? "",
       );
   Map<String, dynamic> toJson() => {
-        "fingerprint": fingerprint,
-        "display_name": displayName,
+        "deviceId": deviceId,
+        "device_name": deviceName,
       };
 }

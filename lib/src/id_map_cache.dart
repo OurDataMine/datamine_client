@@ -2,6 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'info_classes.dart';
+
+final _log = log;
+
 abstract class IDMapRemote {
   Future<Map<String, String>> readFolder();
 }
@@ -16,14 +20,20 @@ class IDMapCache {
   IDMapCache(String filePath) : _file = File(filePath) {
     if (!_file.existsSync()) return;
 
-    final rawJson = jsonDecode(_file.readAsStringSync());
-    _lastSync = rawJson["last_sync"] == null
-        ? null
-        : DateTime.parse(rawJson["last_sync"] as String);
-    _idMap = (rawJson["id_map"] as Map<String, dynamic>?)?.map(
-          (key, value) => MapEntry(key, value as String?),
-        ) ??
-        {};
+    try {
+      final rawJson = jsonDecode(_file.readAsStringSync());
+      _lastSync = rawJson["last_sync"] == null
+          ? null
+          : DateTime.parse(rawJson["last_sync"] as String);
+      _idMap = (rawJson["id_map"] as Map<String, dynamic>?)?.map(
+            (key, value) => MapEntry(key, value as String?),
+      ) ??
+          {};
+    } on FormatException catch (e) {
+      _log.severe("Unable to parse cache JSON: $e");
+      return;
+    }
+
   }
 
   void addRemote(IDMapRemote r) {

@@ -6,7 +6,6 @@ import 'package:async/async.dart';
 import 'package:hash/hash.dart';
 import 'package:path/path.dart' as path;
 
-import 'package:background_fetch/background_fetch.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'src/backends/backends.dart';
@@ -53,15 +52,6 @@ class DatamineClient {
       _log.finest("using $_cacheRoot as the root cache directory");
       return _initLocalStore(_store.currentUser);
     }).then(_ready.complete, onError: _ready.completeError);
-
-    BackgroundFetch.configure(
-      BackgroundFetchConfig(
-        minimumFetchInterval: 15,
-        requiredNetworkType: NetworkType.ANY,
-      ),
-      _bgUpload,
-      _bgTimeout,
-    );
   }
 
   /// If signIn returns a non-null DeviceInfo that represents the device that
@@ -76,8 +66,12 @@ class DatamineClient {
     _userStream.sink.add(user);
     _backend.addIDCache(_fileIDs);
 
+    await aquireOwnership(force: force);
+  }
+
+  Future<void> aquireOwnership({bool force=false}) async {
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.fingerprint != _store.fingerprint) {
+    if (curOwner?.deviceId != _store.deviceId) {
       if (curOwner == null || force) {
         _claimPrimDevice();
       } else {
@@ -106,7 +100,7 @@ class DatamineClient {
   }
 
   Future<void> _claimPrimDevice() async {
-    final info = DeviceInfo(_store.fingerprint, await deviceName);
+    final info = DeviceInfo(_store.deviceId, await deviceName);
     final file = File(path.join(_cacheDir.path, "primary_device.json"));
     await file.writeAsString(jsonEncode(info.toJson()));
     await _backend.uploadFile(_ownerFileName, file);
@@ -162,27 +156,23 @@ class DatamineClient {
     _store.currentUser = user;
   }
 
-  void _bgUpload(String taskId) {
+  Future<int> bgUpload(String taskId, {int maxUploads = 1}) async {
     _log.finest("background upload task $taskId started");
+    final fileStream = _dataDir.list();
 
-    _dataDir.list().firstOrNull.then((entity) {
+    for (int ii = 0; ii < maxUploads; ii++) {
+      final entity = await fileStream.firstOrNull.onError((error, stackTrace) {
+        _log.severe("background file upload failed: $error\n$stackTrace");
+        return;
+      });
       if (entity == null) {
         _log.finest("upload task $taskId ended because no files to upload");
       } else {
         _log.finer("upload task $taskId uploading ${entity.path}");
-        return _uploadFile(entity.path);
+        await _uploadFile(entity.path);
       }
-    }).catchError((err, stacktrace) {
-      _log.severe("background file upload failed: $err\n$stacktrace");
-      return null;
-    }).then((_) {
-      BackgroundFetch.finish(taskId);
-    });
-  }
-
-  void _bgTimeout(String taskId) {
-    _log.warning("background task $taskId timed out");
-    BackgroundFetch.finish(taskId);
+    }
+    return fileStream.length;
   }
 
   Future<void> _uploadFile(String filePath) async {
@@ -194,7 +184,7 @@ class DatamineClient {
     // so we always create a new one in this function.
     await _backend.signIn();
     final curOwner = await _checkPrimDevice();
-    if (curOwner?.fingerprint != _store.fingerprint) {
+    if (curOwner?.deviceId != _store.deviceId) {
       _log.warning("uploading $fileName skipped because ownership conflict");
       return;
     }
@@ -256,12 +246,6 @@ class DatamineClient {
       return result;
     }
 
-    final driveId = await _fileIDs.getID(id);
-    if (driveId == null) {
-      throw FileSystemException("file not found", id);
-    }
-
-    _log.fine("downloading file $id as google drive file $driveId");
-    return _backend.downloadFile(driveId, result.path);
+    return _backend.downloadFile(id, result.path);
   }
 }

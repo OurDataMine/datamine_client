@@ -96,7 +96,7 @@ class GDriveBackend implements Backend, IDMapRemote {
     if (driveId == null) {
       throw FileSystemException("file not found", fileName);
     }
-
+    log.fine("downloading file $fileName as google drive file $driveId");
     final api = await _ready.future;
     final driveFile = await api.files.get(driveId,
         downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
@@ -112,18 +112,21 @@ class GDriveBackend implements Backend, IDMapRemote {
   Future<void> uploadFile(String fileName, File contents) async {
     final idCache = await _idCache.future;
     final api = await _ready.future;
-    final remote = await _getFileInfo(api, fileName, parent: _rootFolder);
     final media = drive.Media(contents.openRead(), await contents.length());
-
     final drive.File resp;
-    if (remote == null) {
+
+    String? remoteId = await idCache.getID(fileName);
+    if (remoteId == null) {
+      remoteId = (await _getFileInfo(api, fileName, parent: _rootFolder))?.id;
+    }
+    if (remoteId == null) {
       log.finer("creating new file $fileName");
       final driveFile = drive.File(name: fileName, parents: [_rootFolder]);
       resp = await api.files.create(driveFile, uploadMedia: media);
     } else {
-      final driveId = remote.id!;
-      log.finer("updating file $fileName (drive ID = $driveId)");
-      resp = await api.files.update(remote, driveId, uploadMedia: media);
+      final driveFile = drive.File(name: fileName);
+      log.finer("updating file $fileName (drive ID = $remoteId)");
+      resp = await api.files.update(driveFile, remoteId, uploadMedia: media);
     }
     idCache.setID(fileName, resp.id);
   }
