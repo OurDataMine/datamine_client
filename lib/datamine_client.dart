@@ -158,21 +158,16 @@ class DatamineClient {
 
   Future<int> bgUpload(String taskId, {int maxUploads = 1}) async {
     _log.finest("background upload task $taskId started");
-    final fileStream = _dataDir.list();
+    final fileStream = _dataDir.listSync();
 
-    for (int ii = 0; ii < maxUploads; ii++) {
-      final entity = await fileStream.firstOrNull.onError((error, stackTrace) {
-        _log.severe("background file upload failed: $error\n$stackTrace");
-        return;
-      });
-      if (entity == null) {
-        _log.finest("upload task $taskId ended because no files to upload");
-      } else {
-        _log.finer("upload task $taskId uploading ${entity.path}");
-        await _uploadFile(entity.path);
-      }
-    }
-    return fileStream.length;
+    final count = fileStream.length;
+    print("Files to upload: $count");
+    fileStream.take(maxUploads).forEach((entity) async {
+      _uploadFile(entity.path).onError((error, stackTrace) =>
+          _log.warning("Unable to upload file: $error"));
+    });
+
+    return _dataDir.listSync().length;
   }
 
   Future<void> _uploadFile(String filePath) async {
