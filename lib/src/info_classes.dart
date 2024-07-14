@@ -55,6 +55,7 @@ Future<String> _getDeviceName() {
   final possible = [
     plugin.androidInfo.then((info) => info.model),
     plugin.iosInfo.then((info) => info.localizedModel),
+    plugin.linuxInfo.then((info) => info.prettyName)
   ].map((f) => f.catchError((_) => ""));
 
   return Future.wait(possible).then((values) {
