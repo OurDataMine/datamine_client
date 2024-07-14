@@ -167,7 +167,7 @@ class ClientAuthState extends State<ClientAuth> {
     return SimpleDialog(
       title: const Text("Claim Write Access"),
       children: [
-        Text("Data Mine is currently being managed by ${conflict.displayName}. "
+        Text("Data Mine is currently being managed by ${conflict.deviceName}. "
             "You will not be able to upload anything from this device.\n\n"
             "Would you like to transfer management to this device? "
             "Any pending updates from your other device might be lost"),
