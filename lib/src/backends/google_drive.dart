@@ -132,9 +132,10 @@ class GDriveBackend implements Backend, IDMapRemote {
   }
 }
 
-UserInfo? _convertUser(GoogleSignInAccount? gUser) {
+Future<UserInfo?> _convertUser(GoogleSignInAccount? gUser) async {
   if (gUser == null) return null;
-  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl);
+  final idToken = (await gUser.authentication).idToken;
+  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, idToken);
 }
 
 Future<String> _ensureFolder(
