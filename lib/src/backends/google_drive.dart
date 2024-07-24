@@ -10,6 +10,7 @@ import './backends.dart';
 class GDriveBackend implements Backend, IDMapRemote {
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
+    // 'requestIdToken',
     'https://www.googleapis.com/auth/drive.file',
   ]);
   String _rootFolder = '';
@@ -116,9 +117,7 @@ class GDriveBackend implements Backend, IDMapRemote {
     final drive.File resp;
 
     String? remoteId = await idCache.getID(fileName);
-    if (remoteId == null) {
-      remoteId = (await _getFileInfo(api, fileName, parent: _rootFolder))?.id;
-    }
+    remoteId ??= (await _getFileInfo(api, fileName, parent: _rootFolder))?.id;
     if (remoteId == null) {
       log.finer("creating new file $fileName");
       final driveFile = drive.File(name: fileName, parents: [_rootFolder]);

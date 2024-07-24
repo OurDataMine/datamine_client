@@ -8,9 +8,11 @@ environment:
 
 dependencies:
   datamine_client: { path: ../ }
-  file_picker: ^6.1.1
+  file_picker: ^8.0.6
   flutter: { sdk: flutter }
   http: ^1.2.0
+  hash: ^1.0.4
+  logging: ^1.2.0
 
 flutter:
   uses-material-design: true

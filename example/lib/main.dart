@@ -55,9 +55,9 @@ class HomePage extends StatelessWidget {
 
     return Column(
       children: [
-        _fittedSection(ClientAuth(), authHeight, constraints.maxWidth),
-        Divider(height: 15, thickness: 5),
-        Expanded(child: ClientFiles()),
+        _fittedSection(const ClientAuth(), authHeight, constraints.maxWidth),
+        const Divider(height: 15, thickness: 5),
+        const Expanded(child: ClientFiles()),
       ],
     );
   }
@@ -67,7 +67,7 @@ class HomePage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Data Mine Client'),
-        actions: [LogLevelDropdown()],
+        actions: const [LogLevelDropdown()],
       ),
       body: LayoutBuilder(builder: _buildLayout),
     );
@@ -125,7 +125,7 @@ class _LogLevelDropdown extends State<LogLevelDropdown> {
 }
 
 class ClientAuth extends StatefulWidget {
-  const ClientAuth({Key? key}) : super(key: key);
+  const ClientAuth({super.key});
 
   @override
   State createState() => ClientAuthState();
@@ -138,12 +138,12 @@ class ClientAuthState extends State<ClientAuth> {
   @override
   void initState() {
     super.initState();
-    final setUser = (UserInfo? user) {
+    setUser(UserInfo? user) {
       setState(() {
         _currentUser = user;
         offline = _client.offline;
       });
-    };
+    }
     _client.currentUser.then(setUser);
     _client.onUserChanged.listen(setUser);
   }
@@ -191,7 +191,7 @@ class ClientAuthState extends State<ClientAuth> {
 
     final user = _currentUser;
     if (user == null) {
-      userDisplay = Text("Sign in to select account");
+      userDisplay = const Text("Sign in to select account");
     } else {
       final String? photoPath = user.photoPath;
       final CircleAvatar avatar;
@@ -306,7 +306,7 @@ class ClientFilesState extends State<ClientFiles> {
             child: const Text('UPLOAD FILE'),
           ),
         ]),
-        Padding(padding: EdgeInsets.all(20)),
+        const Padding(padding: EdgeInsets.all(20)),
         ElevatedButton(
           onPressed: _handleList,
           child: const Text('LIST FILES'),

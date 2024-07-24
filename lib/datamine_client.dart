@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:async/async.dart';
 import 'package:hash/hash.dart';
 import 'package:path/path.dart' as path;
 
@@ -161,7 +160,7 @@ class DatamineClient {
     final fileStream = _dataDir.listSync();
 
     final count = fileStream.length;
-    print("Files to upload: $count");
+    _log.info("Files to upload: $count");
     fileStream.take(maxUploads).forEach((entity) async {
       _uploadFile(entity.path).onError((error, stackTrace) =>
           _log.warning("Unable to upload file: $error"));
