@@ -9,6 +9,7 @@ export './google_drive.dart';
 
 abstract class Backend {
   Future<UserInfo?> signIn();
+  Future<UserInfo?> refresh();
   Future<void> signOut();
   void addIDCache(IDMapCache cache);
 
@@ -19,6 +20,9 @@ abstract class Backend {
 class OfflineBackend implements Backend {
   @override
   Future<UserInfo?> signIn() => Future.value(null);
+
+  @override
+  Future<UserInfo?> refresh() => Future.value(null);
 
   @override
   Future<void> signOut() => Future.value();

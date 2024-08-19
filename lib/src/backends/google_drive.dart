@@ -10,7 +10,6 @@ import './backends.dart';
 class GDriveBackend implements Backend, IDMapRemote {
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
-    // 'requestIdToken',
     'https://www.googleapis.com/auth/drive.file',
   ]);
   String _rootFolder = '';
@@ -19,6 +18,13 @@ class GDriveBackend implements Backend, IDMapRemote {
 
   GDriveBackend() {
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
+  }
+
+  @override
+  Future<UserInfo?> refresh() async {
+    final user = await _googleSignIn.signInSilently(
+        suppressErrors: true, reAuthenticate: true);
+    return _convertUser(user);
   }
 
   @override
