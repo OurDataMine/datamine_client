@@ -29,7 +29,7 @@ class SimpleStore {
     if (curEmail == null) return null;
 
     final rawJson = _sharedPref.getString("$_prefix:$curEmail:user_info");
-    if (rawJson == null) return UserInfo(curEmail, "", null);
+    if (rawJson == null) return UserInfo(curEmail, "", null, "");
     return UserInfo.fromJson(jsonDecode(rawJson));
   }
 

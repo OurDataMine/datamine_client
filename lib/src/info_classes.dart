@@ -14,13 +14,14 @@ class UserInfo {
   final String email;
   final String? displayName;
   final String? photoUrl;
+  final String? id;
   final String? openIdToken;
   String? photoPath;
 
   @override
   String toString() => "$displayName <$email>";
 
-  UserInfo(this.email, this.displayName, this.photoUrl,
+  UserInfo(this.email, this.displayName, this.photoUrl, this.id,
       [this.openIdToken, this.photoPath]);
   factory UserInfo.fromJson(Map<String, dynamic> json) => UserInfo(
         json["email"],

@@ -53,9 +53,7 @@ class DatamineClient {
     }).then(_ready.complete, onError: _ready.completeError);
   }
 
-  Future<void> refreshAuth() async {
-    await _backend.refresh();
-  }
+  Future<UserInfo?> refreshAuth() => _backend.refresh();
 
   /// If signIn returns a non-null DeviceInfo that represents the device that
   /// currently "owns" the Data Mine. This device will not be able to write any

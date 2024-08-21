@@ -22,6 +22,8 @@ class GDriveBackend implements Backend, IDMapRemote {
 
   @override
   Future<UserInfo?> refresh() async {
+    log.info("Refreshing User credentials.");
+    _ready = Completer();
     final user = await _googleSignIn.signInSilently(
         suppressErrors: true, reAuthenticate: true);
     return _convertUser(user);
@@ -140,7 +142,7 @@ class GDriveBackend implements Backend, IDMapRemote {
 Future<UserInfo?> _convertUser(GoogleSignInAccount? gUser) async {
   if (gUser == null) return null;
   final idToken = (await gUser.authentication).idToken;
-  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, idToken);
+  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, gUser.id, idToken);
 }
 
 Future<String> _ensureFolder(
