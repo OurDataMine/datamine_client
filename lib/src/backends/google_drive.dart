@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:datamine_client/src/jwt_parser.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -15,18 +16,39 @@ class GDriveBackend implements Backend, IDMapRemote {
   String _rootFolder = '';
   Completer<drive.DriveApi> _ready = Completer();
   Completer<IDMapCache> _idCache = Completer();
+  DateTime expiration = DateTime.fromMillisecondsSinceEpoch(0);
+  int retries = 0;
 
   GDriveBackend() {
     _googleSignIn.onCurrentUserChanged.listen(_onUserChange);
   }
 
+  Future<drive.DriveApi> refreshIfNeeded() async {
+    if (expiration.isAfter(DateTime.now())) {
+      return _ready.future;
+    }
+    await refresh();
+    return await _ready.future;
+  }
+
   @override
   Future<UserInfo?> refresh() async {
     log.info("Refreshing User credentials.");
+    if(retries >= 3) {
+      log.severe("Google Login retries exceeded.  Not trying again.");
+      return null;
+    }
     _ready = Completer();
-    final user = await _googleSignIn.signInSilently(
-        suppressErrors: true, reAuthenticate: true);
-    return _convertUser(user);
+    try {
+      final user = await _googleSignIn.signInSilently(
+          suppressErrors: false, reAuthenticate: true);
+      retries = 0;
+      return _convertUser(user);
+    } catch (err) {
+      log.severe("Unable to refresh credentials.");
+      retries++;
+      return null;
+    }
   }
 
   @override
@@ -65,22 +87,26 @@ class GDriveBackend implements Backend, IDMapRemote {
     }
     if (user == null) return;
 
-    final client = await _googleSignIn.authenticatedClient();
-    final api = drive.DriveApi(client!);
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      final api = drive.DriveApi(client!);
 
-    String? prevId;
-    for (final name in ["my_data_mine", await appName]) {
-      prevId = await _ensureFolder(api, name, prevId);
+      String? prevId;
+      for (final name in ["my_data_mine", await appName]) {
+        prevId = await _ensureFolder(api, name, prevId);
+      }
+      _rootFolder = prevId!;
+
+      _ready.complete(api);
+    } on Exception catch (ex) {
+      log.severe("Network comms with Google had an issue: $ex");
     }
-    _rootFolder = prevId!;
-
-    _ready.complete(api);
   }
 
   @override
   Future<Map<String, String>> readFolder() async {
     const orderBy = "createdTime desc";
-    final api = await _ready.future;
+    final api = await refreshIfNeeded();
     final query = "'$_rootFolder' in parents";
 
     final Map<String, String> result = {};
@@ -106,7 +132,7 @@ class GDriveBackend implements Backend, IDMapRemote {
       throw FileSystemException("file not found", fileName);
     }
     log.fine("downloading file $fileName as google drive file $driveId");
-    final api = await _ready.future;
+    final api = await refreshIfNeeded();
     final driveFile = await api.files.get(driveId,
         downloadOptions: drive.DownloadOptions.fullMedia) as drive.Media;
 
@@ -120,7 +146,7 @@ class GDriveBackend implements Backend, IDMapRemote {
   @override
   Future<void> uploadFile(String fileName, File contents) async {
     final idCache = await _idCache.future;
-    final api = await _ready.future;
+    final api = await refreshIfNeeded();
     final media = drive.Media(contents.openRead(), await contents.length());
     final drive.File resp;
 
@@ -137,12 +163,19 @@ class GDriveBackend implements Backend, IDMapRemote {
     }
     idCache.setID(fileName, resp.id);
   }
-}
 
-Future<UserInfo?> _convertUser(GoogleSignInAccount? gUser) async {
-  if (gUser == null) return null;
-  final idToken = (await gUser.authentication).idToken;
-  return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, gUser.id, idToken);
+  Future<UserInfo?> _convertUser(GoogleSignInAccount? gUser) async {
+    if (gUser == null) return null;
+    final idToken = (await gUser.authentication).idToken;
+    if (idToken != null) {
+      final payload = parseJwt(idToken);
+      int ts = payload['exp'];
+      expiration = DateTime.fromMillisecondsSinceEpoch(1000 * ts);
+      log.info("Login will expire at $expiration");
+    }
+    return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, gUser.id, idToken);
+  }
+
 }
 
 Future<String> _ensureFolder(
