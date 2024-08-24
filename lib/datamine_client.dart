@@ -174,11 +174,6 @@ class DatamineClient {
   Future<void> _uploadFile(String filePath) async {
     final fileName = path.basename(filePath);
 
-    // This is currently done from the background which means there's a good
-    // chance the original auth token has expired. We don't have a good way of
-    // detecting this or of swapping the authentication of an existing client
-    // so we always create a new one in this function.
-    await _backend.signIn();
     final curOwner = await _checkPrimDevice();
     if (curOwner?.deviceId != _store.deviceId) {
       _log.warning("uploading $fileName skipped because ownership conflict");
