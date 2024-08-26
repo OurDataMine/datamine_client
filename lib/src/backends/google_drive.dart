@@ -12,8 +12,8 @@ class GDriveBackend implements Backend, IDMapRemote {
   final _googleSignIn = GoogleSignIn(scopes: [
     'profile',
     'https://www.googleapis.com/auth/drive.file',
+    "https://www.googleapis.com/auth/drive.appdata",
   ]);
-  String _rootFolder = '';
   Completer<drive.DriveApi> _ready = Completer();
   Completer<IDMapCache> _idCache = Completer();
   DateTime expiration = DateTime.fromMillisecondsSinceEpoch(0);
@@ -91,12 +91,6 @@ class GDriveBackend implements Backend, IDMapRemote {
       final client = await _googleSignIn.authenticatedClient();
       final api = drive.DriveApi(client!);
 
-      String? prevId;
-      for (final name in ["my_data_mine", await appName]) {
-        prevId = await _ensureFolder(api, name, prevId);
-      }
-      _rootFolder = prevId!;
-
       _ready.complete(api);
     } on Exception catch (ex) {
       log.severe("Network comms with Google had an issue: $ex");
@@ -107,13 +101,22 @@ class GDriveBackend implements Backend, IDMapRemote {
   Future<Map<String, String>> readFolder() async {
     const orderBy = "createdTime desc";
     final api = await refreshIfNeeded();
-    final query = "'$_rootFolder' in parents";
 
     final Map<String, String> result = {};
     String? nextPage;
     do {
       final list = await api.files.list(
-        q: query,
+        // q: query,
+        orderBy: orderBy,
+        pageToken: nextPage,
+      );
+      result.addAll({for (final f in list.files!) f.name!: f.id!});
+      nextPage = list.nextPageToken;
+    } while (nextPage != null);
+
+    do {
+      final list = await api.files.list(
+        spaces: "appDataFolder",
         orderBy: orderBy,
         pageToken: nextPage,
       );
@@ -151,11 +154,12 @@ class GDriveBackend implements Backend, IDMapRemote {
     final drive.File resp;
 
     String? remoteId = await idCache.getID(fileName);
-    remoteId ??= (await _getFileInfo(api, fileName, parent: _rootFolder))?.id;
+    remoteId ??= (await _getFileInfo(api, fileName))?.id;
     if (remoteId == null) {
       log.finer("creating new file $fileName");
-      final driveFile = drive.File(name: fileName, parents: [_rootFolder]);
+      final driveFile = drive.File(name: fileName, parents: ['appDataFolder']);
       resp = await api.files.create(driveFile, uploadMedia: media);
+      log.finer("Uploaded file $fileName to ${resp.id}");
     } else {
       final driveFile = drive.File(name: fileName);
       log.finer("updating file $fileName (drive ID = $remoteId)");
@@ -178,37 +182,15 @@ class GDriveBackend implements Backend, IDMapRemote {
 
 }
 
-Future<String> _ensureFolder(
-  drive.DriveApi api,
-  String name,
-  String? parent,
-) async {
-  const folderType = 'application/vnd.google-apps.folder';
-
-  final file =
-      await _getFileInfo(api, name, parent: parent, mimeType: folderType);
-  if (file != null) return file.id!;
-
-  log.fine("creating new folder $name with parent $parent");
-  final newFolder = await api.files.create(drive.File(
-    name: name,
-    mimeType: folderType,
-    parents: parent != null ? [parent] : null,
-  ));
-  return newFolder.id!;
-}
-
 Future<drive.File?> _getFileInfo(
   drive.DriveApi api,
   String name, {
-  String? parent,
   String? mimeType,
 }) async {
   String query = "name='$name'";
-  if (parent != null) query += " and '$parent' in parents";
   if (mimeType != null) query += " and mimeType='$mimeType'";
 
-  final list = await api.files.list(q: query);
+  final list = await api.files.list(spaces: "appDataFolder", q: query);
   final files = list.files ?? [];
 
   if (files.isEmpty) return null;
