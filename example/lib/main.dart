@@ -148,19 +148,22 @@ class ClientAuthState extends State<ClientAuth> {
     _client.onUserChanged.listen(setUser);
   }
 
-  void _handleSignIn(BuildContext context) {
-    _client.signIn().catchError((error) async {
-      final conflict = (error as OwnershipException).currentOwner;
-      final force = await showDialog(
+  void _handleSignIn([bool force = false]) async {
+    try {
+      await _client.signIn(force: force);
+    } on OwnershipException catch (error) {
+      if (!mounted || force) {
+        Logger.root.severe("failed signing in: ", error);
+        return;
+      }
+      force = await showDialog(
         context: context,
         builder: (context) {
-          return _buildConfirm(context, conflict);
+          return _buildConfirm(context, error.currentOwner);
         },
       );
-      if (force) return _client.signIn(force: true);
-    }, test: (err) => err is OwnershipException).catchError((error) {
-      Logger.root.severe("failed signing in: ", error);
-    });
+      if (force) _handleSignIn(true);
+    }
   }
 
   Widget _buildConfirm(BuildContext context, DeviceInfo conflict) {
@@ -211,7 +214,7 @@ class ClientAuthState extends State<ClientAuth> {
 
     if (offline) {
       action = ElevatedButton(
-        onPressed: () => _handleSignIn(context),
+        onPressed: () => _handleSignIn(),
         child: const Text("SIGN IN"),
       );
     } else {
