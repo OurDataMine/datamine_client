@@ -5,6 +5,7 @@ import 'package:datamine_client/src/jwt_parser.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
+import 'package:synchronized/synchronized.dart';
 
 import './backends.dart';
 
@@ -16,6 +17,7 @@ class GDriveBackend implements Backend, IDMapRemote {
   ]);
   Completer<drive.DriveApi> _ready = Completer();
   Completer<IDMapCache> _idCache = Completer();
+  final loginLock = Lock() ;
   DateTime expiration = DateTime.fromMillisecondsSinceEpoch(0);
   int retries = 0;
 
@@ -87,14 +89,22 @@ class GDriveBackend implements Backend, IDMapRemote {
     }
     if (user == null) return;
 
-    try {
-      final client = await _googleSignIn.authenticatedClient();
-      final api = drive.DriveApi(client!);
+    await loginLock.synchronized(() async {
+      if (_ready.isCompleted) {
+        // Another thread must have completed login while we were waiting.
+        log.info("Already logged in. Not retrying");
+        return;
+      }
 
-      _ready.complete(api);
-    } on Exception catch (ex) {
-      log.severe("Network comms with Google had an issue: $ex");
-    }
+      try {
+        final client = await _googleSignIn.authenticatedClient();
+        final api = drive.DriveApi(client!);
+        log.info("Successfully logged in to Google");
+        _ready.complete(api);
+      } on Exception catch (ex) {
+        log.severe("Network comms with Google had an issue: $ex");
+      }
+    });
   }
 
   @override

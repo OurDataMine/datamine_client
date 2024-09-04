@@ -181,10 +181,15 @@ class DatamineClient {
     }
 
     _log.fine("starting upload $fileName");
-    final local = File(filePath);
-    await _backend.uploadFile(fileName, local);
-    await local.delete();
-    _log.info("finished uploading $fileName");
+    try {
+      final local = File(filePath);
+      await _backend.uploadFile(fileName, local);
+      await local.delete();
+      _log.info("finished uploading $fileName");
+    } on Exception catch (ex){
+      _log.warning("Unable to upload file: $filePath: $ex");
+      //TODO: FIREBASE?
+    }
   }
 
   Future<List<String>> listFiles() async {
