@@ -8,6 +8,7 @@ final _log = log;
 
 abstract class IDMapRemote {
   Future<Map<String, String>> readFolder();
+  Future<String?> findFile(String name);
 }
 
 class IDMapCache {
@@ -61,7 +62,13 @@ class IDMapCache {
 
   Future<String?> getID(String fileName) async {
     if (!_idMap.containsKey(fileName)) {
-      await _refresh(force: true);
+      final remoteId = await _remote?.findFile(fileName);
+      setID(fileName, remoteId);
+      if (remoteId != null) {
+        _log.warning("Cache Miss.  Rebuilding the Cache");
+        // Found a file that exist, but not in the cache. Rebuild.
+        _refresh(force: true);
+      } // else, it doesn't actually exist, so our cache is accurate.
     }
     return _idMap[fileName];
   }
@@ -81,7 +88,7 @@ class IDMapCache {
         return false;
       }
     }
-
+    final start = DateTime.now();
     // We want to keep all the values that might not have been uploaded to
     // the remote yet, but if it was uploaded and isn't there anymore go
     // ahead and remove it.
@@ -90,12 +97,16 @@ class IDMapCache {
       ..removeWhere((_, value) => value != null)
       ..addAll(update);
 
-    _lastSync = DateTime.now();
     _saveFile();
+    final stop = DateTime.now();
+    final duration = stop.difference(start);
+    final seconds = duration.inMicroseconds/10e6;
+    _log.fine("Finished Refresh in ${seconds.toStringAsFixed(3)} seconds");
     return true;
   }
 
   void _saveFile() {
+    _lastSync = DateTime.now();
     final rawJson = jsonEncode({
       "last_sync": _lastSync?.toIso8601String(),
       "id_map": _idMap,

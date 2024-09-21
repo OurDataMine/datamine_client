@@ -190,6 +190,12 @@ class GDriveBackend implements Backend, IDMapRemote {
     return UserInfo(gUser.email, gUser.displayName, gUser.photoUrl, gUser.id, idToken);
   }
 
+  @override
+  Future<String?> findFile(String name) async {
+    final api = await refreshIfNeeded();
+    final file = await _getFileInfo(api, name);
+    return file?.id;
+  }
 }
 
 Future<drive.File?> _getFileInfo(
@@ -200,12 +206,22 @@ Future<drive.File?> _getFileInfo(
   String query = "name='$name'";
   if (mimeType != null) query += " and mimeType='$mimeType'";
 
-  final list = await api.files.list(spaces: "appDataFolder", q: query);
-  final files = list.files ?? [];
+  // final list1 = await api.files.list(q: query);
+  final list1 = await api.files.list(spaces: "appDataFolder", q: query);
 
-  if (files.isEmpty) return null;
-  if (files.length > 1) {
-    log.warning("ambiguous remote: ${files.length} files match $name");
+  final match1 = _getMatch(list1, name);
+  if (match1 == null) {
+    final list2 = await api.files.list(q: query);
+    return _getMatch(list2, name);
+  } else {
+    return match1;
   }
-  return files[0];
+}
+
+drive.File? _getMatch(drive.FileList list, String name) {
+  final matches = list.files?.length ?? 0;
+  if (matches > 1) {
+    log.warning("ambiguous remote: $matches files match $name");
+  }
+  return list.files?.firstOrNull;
 }
